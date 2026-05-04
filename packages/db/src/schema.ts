@@ -78,6 +78,7 @@ export const candidates = pgTable(
   "candidates",
   {
     id: text("id").primaryKey(),
+    firebaseUid: text("firebase_uid").unique(),
     phone: varchar("phone", { length: 32 }).notNull().unique(),
     language: varchar("language", { length: 10 }).notNull().default("en"),
     email: text("email"),
@@ -183,7 +184,8 @@ export const transcriptTurns = pgTable(
 // ===========================================================================
 
 export const employers = pgTable("employers", {
-  id: text("id").primaryKey(), // Firebase Auth UID
+  id: text("id").primaryKey(),
+  firebaseUid: text("firebase_uid").unique(),
   email: text("email").notNull().unique(),
   company: text("company").notNull(),
   calendarId: text("calendar_id"),

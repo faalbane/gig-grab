@@ -37,14 +37,26 @@ export function VerifyForm({ audience }: Props) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
+    const e164 = `${countryCode}${phone.replace(/\D/g, "")}`;
     try {
-      // TODO Phase 1 wiring: POST to /api/verify (Cloud Function) which kicks off
-      // Twilio Verify, then redirect to /calling on success.
-      // For now this is a no-op so the UI is testable end-to-end.
-      await new Promise((r) => setTimeout(r, 300));
+      const res = await fetch("/api/intake/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          phone: e164,
+          language: language.code,
+          audience,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error ?? "Something went wrong.");
+      }
       const params = new URLSearchParams({
+        sessionId: data.sessionId,
+        token: data.token ?? "",
         lang: language.code,
-        e164: `${countryCode}${phone.replace(/\D/g, "")}`,
+        e164,
         audience,
       });
       window.location.href = `/calling?${params.toString()}`;

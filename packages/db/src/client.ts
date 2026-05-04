@@ -4,16 +4,51 @@ import * as schema from "./schema";
 
 let cached: ReturnType<typeof createClient> | null = null;
 
+/**
+ * Create a postgres-js client. Handles two connection styles:
+ *
+ * 1. Standard TCP URL — `postgres://user:pass@host:port/db`
+ *    (used in local dev via Cloud SQL Auth Proxy on 127.0.0.1:5433)
+ *
+ * 2. Cloud SQL unix-socket — `postgres://user:pass@/db?host=/cloudsql/CONN`
+ *    (used by Cloud Functions / Cloud Run with --add-cloudsql-instances).
+ *    postgres-js v3 fails `new URL()` on empty hostname, so we parse the
+ *    string ourselves and pass an options object.
+ */
 function createClient(databaseUrl: string) {
-  // Single connection in serverless contexts (Cloud Functions, Neon).
-  // For long-running processes (the Pipecat agent server) we'd raise `max`.
-  const sql = postgres(databaseUrl, {
-    max: 1,
-    idle_timeout: 20,
-    connect_timeout: 10,
-    prepare: false, // required for connection poolers (PgBouncer/Neon proxy)
-  });
-  return drizzle(sql, { schema, casing: "snake_case" });
+  const isUnixSocket = /:\/\/[^/]*@\/[^?]+\?host=\/cloudsql\//.test(databaseUrl);
+
+  let client: ReturnType<typeof postgres>;
+
+  if (isUnixSocket) {
+    // postgres://user:pass@/db?host=/cloudsql/PROJECT:REGION:INSTANCE
+    const m = databaseUrl.match(
+      /^postgres(?:ql)?:\/\/([^:]+):([^@]+)@\/([^?]+)\?host=(.+)$/,
+    );
+    if (!m) {
+      throw new Error("Could not parse Cloud SQL unix-socket DATABASE_URL.");
+    }
+    const [, user, password, database, host] = m;
+    client = postgres({
+      host: decodeURIComponent(host),
+      database,
+      username: user,
+      password: decodeURIComponent(password),
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 10,
+      prepare: false,
+    });
+  } else {
+    client = postgres(databaseUrl, {
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 10,
+      prepare: false,
+    });
+  }
+
+  return drizzle(client, { schema, casing: "snake_case" });
 }
 
 /**

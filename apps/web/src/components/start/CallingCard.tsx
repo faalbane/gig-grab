@@ -9,7 +9,14 @@ function CallingCardInner() {
   const e164 = params.get("e164") ?? "+44 0000 000000";
   const langCode = params.get("lang") ?? "en";
   const audience = params.get("audience") ?? "worker";
+  const sessionId = params.get("sessionId") ?? "";
+  const token = params.get("token") ?? "";
   const language = findLanguage(langCode);
+
+  const profileHref =
+    sessionId && token
+      ? `/profile?sessionId=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(token)}`
+      : "/profile";
 
   const [pulse, setPulse] = useState(0);
   useEffect(() => {
@@ -47,12 +54,12 @@ function CallingCardInner() {
         </div>
       )}
 
-      <button
-        type="button"
-        className="mt-8 w-full rounded-md bg-gray-900 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-gray-800"
+      <a
+        href={profileHref}
+        className="mt-8 block w-full rounded-md bg-gray-900 px-5 py-3 text-center text-sm font-medium text-white transition-colors hover:bg-gray-800"
       >
         I&apos;ve answered → continue
-      </button>
+      </a>
 
       <button
         type="button"

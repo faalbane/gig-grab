@@ -12,8 +12,8 @@
       "source": "functions",
       "codebase": "default",
       "runtime": "nodejs20",
-      "ignore": ["node_modules", ".git", "*.local", "lib"],
-      "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"]
+      "ignore": ["node_modules", ".git", "*.local", "src", "tsconfig.json"],
+      "predeploy": ["pnpm --filter @gig-grab/functions build"]
     }
   ],
   "storage": {

@@ -10,8 +10,12 @@
     "esModuleInterop": true,
     "moduleResolution": "node",
     "resolveJsonModule": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@gig-grab/db": ["../packages/db/src/index.ts"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "../packages/db/src"],
   "exclude": ["node_modules", "lib"]
 }
