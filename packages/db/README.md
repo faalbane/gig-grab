@@ -4,14 +4,26 @@ Postgres + Drizzle ORM data layer.
 
 ## Setup
 
-1. **Sign up at [neon.tech](https://neon.tech)** (or use any Postgres 16+ with `pgvector`).
-2. Create a project named `gig-grab`.
-3. Copy the pooled connection string into `DATABASE_URL` in the root `.env`.
-4. Push the schema:
+**Production:** Google Cloud SQL for PostgreSQL 16 with `pgvector`.
 
-   ```bash
-   pnpm --filter @gig-grab/db push
-   ```
+```bash
+# 1. Enable APIs and provision (run once — see infra/cloudsql-setup.sh)
+bash infra/cloudsql-setup.sh
+
+# 2. Connect via Cloud SQL Auth Proxy on :5433
+gcloud sql connect gig-grab-db --user=gig_app --database=gig_grab
+
+# 3. Set DATABASE_URL in .env (see .env.example for format) and push schema
+pnpm --filter @gig-grab/db push
+```
+
+**Local dev:** no Cloud SQL needed.
+
+```bash
+docker compose -f infra/docker-compose.dev.yml up -d
+# DATABASE_URL=postgres://gig:gig@localhost:5432/gig_grab
+pnpm --filter @gig-grab/db push
+```
 
 ## Local development
 

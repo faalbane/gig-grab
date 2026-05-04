@@ -25,7 +25,7 @@ export function db() {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
-      "DATABASE_URL is not set. See .env.example — sign up at neon.tech and paste the connection string.",
+      "DATABASE_URL is not set. See .env.example — provision Cloud SQL via infra/cloudsql-setup.sh, or run docker-compose for local dev.",
     );
   }
   cached = createClient(url);

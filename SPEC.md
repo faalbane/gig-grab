@@ -79,7 +79,7 @@ Proven: 100 concurrent PSTN calls @ <600ms round-trip latency.
 | TTS | Deepgram Aura (English) | **Cartesia Sonic-3** (42 langs) or **ElevenLabs v3** (74 langs) | Match the multilingual landing promise; richer voices |
 | LLM (turn-by-turn) | Groq Llama 3.1 8B | **Keep** for in-call latency | ~100ms TTFT is the unfair advantage |
 | LLM (reasoning) | n/a | **Anthropic Claude Sonnet 4.6** | Question generation, profile synthesis, candidate↔job matching reasoning |
-| State | SQLite | **Postgres + Drizzle ORM (Neon)** | Multi-attribute filtering, joins, aggregations, vector search — Hiring Copilot needs all of these |
+| State | SQLite | **Postgres + Drizzle ORM (Cloud SQL)** | Multi-attribute filtering, joins, aggregations, vector search — Hiring Copilot needs all of these. Stays inside GCP for billing/IAM/data-residency simplicity. |
 | Search | Keyword | **pgvector HNSW** on candidate + job embeddings | OpenAI text-embedding-3-small (1536d) — proven at scale |
 | Verify | n/a | **Twilio Verify** | OTP at landing, then auto-dial via Pipecat |
 | Notifications | n/a | **Twilio (SMS) + WhatsApp Business + SendGrid** | Step 8 alerts |
@@ -141,7 +141,7 @@ Proven: 100 concurrent PSTN calls @ <600ms round-trip latency.
                                      │
                                      ▼
                     ┌────────────────────────────────────────────────┐
-                    │  Postgres + Drizzle (Neon) — system of record   │
+                    │  Postgres + Drizzle (Cloud SQL) — system of rec │
                     │    candidates · jobs · matches · sessions ...   │
                     │    + pgvector HNSW for embedding search         │
                     │  Firebase Auth — identity (Google/MS/LinkedIn)  │
