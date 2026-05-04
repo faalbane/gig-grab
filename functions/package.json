@@ -9,6 +9,7 @@
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test 'src/__tests__/*.test.ts'",
+    "verify-caller": "tsx scripts/verify-caller.ts",
     "serve": "pnpm run build && firebase emulators:start --only functions",
     "deploy": "pnpm run build && firebase deploy --only functions",
     "logs": "firebase functions:log"
