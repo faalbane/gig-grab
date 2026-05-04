@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // CVs — only the candidate themselves can read; writes go through Functions.
+    match /cvs/{candidateId}/{file=**} {
+      allow read: if request.auth != null && request.auth.uid == candidateId;
+      allow write: if false;
+    }
+
+    // JD uploads — only the uploading employer can read; writes via Functions.
+    match /jds/{employerId}/{file=**} {
+      allow read: if request.auth != null && request.auth.uid == employerId;
+      allow write: if false;
+    }
+
+    // Call recordings — server-only.
+    match /recordings/{file=**} {
+      allow read, write: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

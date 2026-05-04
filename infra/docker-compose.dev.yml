@@ -1,0 +1,33 @@
+# Local dev only. Production runs Postgres on Neon (or Cloud SQL) and Redis on
+# Memorystore (or Upstash). Don't deploy this compose file anywhere.
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gig
+      POSTGRES_PASSWORD: gig
+      POSTGRES_DB: gig_grab
+    ports:
+      - "5432:5432"
+    volumes:
+      - gig_grab_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gig -d gig_grab"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - gig_grab_redis:/data
+
+volumes:
+  gig_grab_pg:
+  gig_grab_redis:

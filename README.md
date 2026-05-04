@@ -12,7 +12,8 @@ Voice-first AI hiring agent. Speak it. Match it. Get hired.
 | [`apps/web/`](./apps/web/) | Next.js 15 web app — landing pages, dashboards |
 | [`apps/agent/`](./apps/agent/) | Python + Pipecat voice agent (Twilio SIP, Deepgram, Groq, Cartesia) |
 | [`functions/`](./functions/) | Firebase Functions — webhooks, cron, auto-apply, Hiring Copilot |
-| [`packages/shared/`](./packages/shared/) | Shared TypeScript types |
+| [`packages/db/`](./packages/db/) | Drizzle schema + Postgres client |
+| [`packages/shared/`](./packages/shared/) | Shared TypeScript types (UI/wire) |
 | [`infra/`](./infra/) | Twilio SIP config, Prometheus, deploy scripts |
 | `.claude/projects/.../memory/` | Persistent project memory for AI assistants |
 
@@ -30,10 +31,16 @@ cp .env.example .env
 # fill in DEEPGRAM_API_KEY, GROQ_API_KEY, CARTESIA_API_KEY,
 # ANTHROPIC_API_KEY, TWILIO_*, FIREBASE_*
 
-# 4. Run locally
+# 4. Start local Postgres + Redis
+docker compose -f infra/docker-compose.dev.yml up -d
+
+# 5. Push schema to Postgres
+pnpm --filter @gig-grab/db push
+
+# 6. Run locally
 pnpm dev                                # web on :3000
 cd apps/agent && python src/main.py     # agent on :8765
-firebase emulators:start                # functions + firestore
+firebase emulators:start                # functions + auth + storage
 ```
 
 ## Stack at a glance
@@ -42,8 +49,10 @@ firebase emulators:start                # functions + firestore
 - **Agent:** Python + Pipecat (Silero VAD → Deepgram Nova-3 multi → Groq Llama 3.1 8B → Cartesia Sonic-3)
 - **Reasoning:** Anthropic Claude Sonnet 4.6 (profile synthesis, JD parsing, Hiring Copilot)
 - **Telephony:** Twilio Programmable Voice + SIP trunk
-- **Backend:** Firebase Functions (TS, Node 20) + Firestore
-- **Auth:** Firebase Auth — Google / Microsoft / LinkedIn / email magic link
+- **Backend:** Firebase Functions (TS, Node 20) calling **Postgres via Drizzle ORM** (Neon in prod)
+- **Vector search:** pgvector (`HNSW` index) on candidate + job embeddings
+- **Auth:** Firebase Auth — Google / Microsoft / LinkedIn / email magic link (UID = Postgres PK)
+- **Storage:** Firebase Storage — CVs, JD uploads, call recordings
 - **Observability:** Prometheus + Grafana (forked from `cozmo-voice-agent`)
 
 See `SPEC.md` for the complete architecture, data model, and phased build plan.

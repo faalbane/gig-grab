@@ -79,36 +79,30 @@ Proven: 100 concurrent PSTN calls @ <600ms round-trip latency.
 | TTS | Deepgram Aura (English) | **Cartesia Sonic-3** (42 langs) or **ElevenLabs v3** (74 langs) | Match the multilingual landing promise; richer voices |
 | LLM (turn-by-turn) | Groq Llama 3.1 8B | **Keep** for in-call latency | ~100ms TTFT is the unfair advantage |
 | LLM (reasoning) | n/a | **Anthropic Claude Sonnet 4.6** | Question generation, profile synthesis, candidate↔job matching reasoning |
-| State | SQLite | **Firestore** | Firebase + gcloud already authed; serverless |
-| Search | Keyword | **Vector search (Firestore vector index)** | Match candidate transcripts ↔ job descriptions semantically |
+| State | SQLite | **Postgres + Drizzle ORM (Neon)** | Multi-attribute filtering, joins, aggregations, vector search — Hiring Copilot needs all of these |
+| Search | Keyword | **pgvector HNSW** on candidate + job embeddings | OpenAI text-embedding-3-small (1536d) — proven at scale |
 | Verify | n/a | **Twilio Verify** | OTP at landing, then auto-dial via Pipecat |
 | Notifications | n/a | **Twilio (SMS) + WhatsApp Business + SendGrid** | Step 8 alerts |
 
-### 3.3 Data model (first cut, Firestore)
+### 3.3 Data model (Postgres — see `packages/db/src/schema.ts`)
 
-```
-candidates/{id}
-  phone, language, profile_card, transcript[], cv_url, linkedin_id,
-  match_signals{trade, years, certs, locations, deal_breakers, pay_floor, ...},
-  created_at, last_call_at
+| Table | Purpose | Key columns |
+|---|---|---|
+| `candidates` | Worker, PK = Firebase Auth UID | `phone` unique, `language`, `match_signals jsonb`, `profile_embedding vector(1536)` |
+| `profile_cards` | 1:1 — what renders in CV preview | `name`, `title`, `years_experience`, `summary`, `tickets_and_cards jsonb`, `recent_projects jsonb` |
+| `sessions` | Every voice interaction (intake, screening, interview) | `kind`, `candidate_id?`, `employer_id?`, `job_id?`, `twilio_call_sid`, `audio_url` |
+| `transcript_turns` | Append-only transcript per session | `session_id`, `ord`, `speaker`, `text`, `ms_offset` |
+| `employers` | Hiring company, PK = Firebase Auth UID | `email`, `company`, `calendar_id`, `calendar_provider` |
+| `ats_connections` | 1:1 with employer (Phase 2) | `provider`, `accountId`, KMS-encrypted token blobs |
+| `jobs` | Open role | `title`, `location`, `pay`, `must_haves jsonb`, `deal_breakers jsonb`, `structured_brief jsonb`, `source`, `status`, `embedding vector(1536)` |
+| `matches` | Candidate × Job ranking | unique `(candidate_id, job_id)`, `score numeric(4,3)`, `why_ranked text`, `status` |
+| `interviews` | Scheduled interview | `type` (`ai` \| `human`), `slot`, `calendar_event_id`, `session_id?` |
+| `auto_apply_rules` | 1:1 with candidate (Phase 3) | `pay_floor`, `max_commute_minutes`, `shift_types`, `languages`, `max_applies_per_week` |
+| `alerts` | Append-only outbound notification log (Phase 3) | `kind`, `payload jsonb`, `channel` (`sms`/`whatsapp`/`email`) |
 
-employers/{id}
-  email, company, calendar_id, ats_connection?, jobs[]
+**Vector indexes:** HNSW on `candidates.profile_embedding` and `jobs.embedding` with `vector_cosine_ops`. **Required extensions:** `vector`, `pg_trgm`.
 
-jobs/{id}
-  employer_id, title, location, pay, shift_pattern, must_haves, deal_breakers,
-  source: 'voice'|'upload'|'link'|'ats',
-  status: 'active'|'interviewing'|'paused'|'filled',
-  embedding[],
-  required_count
-
-matches/{id}
-  candidate_id, job_id, score, status: 'suggested'|'applied'|'screened'|'shortlisted'|'rejected',
-  interview_id?
-
-interviews/{id}
-  candidate_id, job_id, type: 'ai'|'human', slot, calendar_event_id, transcript?
-```
+**Why Postgres over Firestore (decided 2026-05-04):** Hiring Copilot is a natural-language→multi-attribute-filter agent. That use case maps cleanly to SQL and badly to Firestore composite-index limits. pgvector is the proven embedding-search layer. Migration cost from Firestore → Postgres mid-product would be weeks; making the call now while the data layer was still scaffolding cost minutes.
 
 ### 3.4 Component map
 
@@ -147,9 +141,14 @@ interviews/{id}
                                      │
                                      ▼
                     ┌────────────────────────────────────────────────┐
-                    │  Firestore (candidates, jobs, matches, ...)     │
-                    │  Firebase Functions (webhooks, cron)            │
-                    │  Firebase Hosting (Next.js or static)           │
+                    │  Postgres + Drizzle (Neon) — system of record   │
+                    │    candidates · jobs · matches · sessions ...   │
+                    │    + pgvector HNSW for embedding search         │
+                    │  Firebase Auth — identity (Google/MS/LinkedIn)  │
+                    │  Firebase Functions — webhooks, cron, APIs      │
+                    │  Firebase Storage — CVs, JD uploads, recordings │
+                    │  Firebase Hosting — Next.js static export       │
+                    │  Redis (Memorystore) — Pipecat call state       │
                     └────────────────────────────────────────────────┘
 ```
 
@@ -181,7 +180,7 @@ Open ask of Ali: share details on currently running customers/campaigns we can c
 - [ ] Candidate-interview bot — 8 question categories (Language & name, Your trade, Certs & tickets, Recent work, Location & travel, Availability, Pay expectation, Deal-breakers), Nova-3 multi, Sonic-3 voice
 - [ ] Post-call: profile card screen (jackandjill.ai-style), edit + confirm
 - [ ] Email/auth capture
-- [ ] Firestore schema for candidates
+- [ ] Drizzle queries: insert candidate after intake call, update profile card on edit
 
 ### Phase 2 — Employer MVP (week 2–3)
 - [ ] Employer landing + 4 intake options (voice / upload / link / ATS)
