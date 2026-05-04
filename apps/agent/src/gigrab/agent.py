@@ -32,11 +32,23 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.services.groq import GroqLLMService
-from pipecat.transports.network.fastapi_websocket import (
-    FastAPIWebsocketTransport,
-    FastAPIWebsocketParams,
-)
+# Pipecat 0.0.108 still ships the legacy paths but emits DeprecationWarnings
+# on import. We use the new paths to silence them and stay compatible with
+# whatever 0.x point release is current.
+try:  # pragma: no cover - import-shim
+    from pipecat.services.groq.llm import GroqLLMService  # type: ignore
+except ImportError:
+    from pipecat.services.groq import GroqLLMService  # type: ignore
+try:
+    from pipecat.transports.websocket.fastapi import (  # type: ignore
+        FastAPIWebsocketTransport,
+        FastAPIWebsocketParams,
+    )
+except ImportError:  # pragma: no cover
+    from pipecat.transports.network.fastapi_websocket import (  # type: ignore
+        FastAPIWebsocketTransport,
+        FastAPIWebsocketParams,
+    )
 
 # --- imports from packages already in src/prompts/ ---
 import sys
