@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default: deny everything. All access goes through Cloud Functions
+    // (which run with admin SDK) until per-collection rules are written.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Authenticated candidates can read their own document.
+    match /candidates/{candidateId} {
+      allow read: if request.auth != null && request.auth.uid == candidateId;
+    }
+
+    // Authenticated employers can read their own document.
+    match /employers/{employerId} {
+      allow read: if request.auth != null && request.auth.uid == employerId;
+    }
+  }
+}
