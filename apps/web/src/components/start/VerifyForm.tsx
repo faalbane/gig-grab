@@ -27,7 +27,9 @@ type Props = { audience: "worker" | "employer" };
 
 export function VerifyForm({ audience }: Props) {
   const [language, setLanguage] = useState<LanguageEntry>(findLanguage("en")!);
-  const [countryCode, setCountryCode] = useState("+1");
+  const [countryIndex, setCountryIndex] = useState(0); // 0 = US (+1)
+  const country = COUNTRY_CODES[countryIndex];
+  const countryCode = country.code;
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -117,13 +119,13 @@ export function VerifyForm({ audience }: Props) {
         <div className="mt-1.5 flex gap-2">
           <select
             aria-label="Country code"
-            value={countryCode}
-            onChange={(e) => setCountryCode(e.target.value)}
+            value={countryIndex}
+            onChange={(e) => setCountryIndex(Number(e.target.value))}
             className="rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           >
             {COUNTRY_CODES.map((c, i) => (
-              <option key={`${c.code}-${i}`} value={c.code}>
-                {c.flag} {c.code}
+              <option key={`${c.country}-${i}`} value={i}>
+                {c.flag} {c.code} {c.country}
               </option>
             ))}
           </select>
