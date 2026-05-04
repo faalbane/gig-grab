@@ -1,7 +1,3 @@
-# Generated migration SQL — keep in version control normally;
-# but during Phase 0/1 we use `drizzle-kit push` (direct sync), so
-# the migrations dir is a placeholder. Switch to commits-of-migrations
-# when we have real production data.
-migrations/*.sql
+# Drizzle migration metadata is regenerated on each `generate` run.
+# We track migrations/*.sql files (they are our schema-change history).
 migrations/meta/
-!migrations/.gitkeep
