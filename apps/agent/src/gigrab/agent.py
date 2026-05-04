@@ -19,6 +19,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     EndFrame,
     Frame,
+    LLMMessagesFrame,
     TranscriptionFrame,
     TextFrame,
     TTSSpeakFrame,
@@ -179,9 +180,8 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     @transport.event_handler("on_client_connected")
     async def _on_connect(t, client):
         await db.update_session_status(session_id=cfg.session_id, status="in_progress")
-        # Have the AI speak the localized greeting via TTS directly. The LLM
-        # takes over once the candidate responds.
-        from prompts.candidate_interview import CallContext
+        # Have the AI speak the localized greeting via TTS. The LLM takes
+        # over once the candidate responds.
         ctx = CallContext(language=cfg.language, e164="", audience=cfg.audience)
         await task.queue_frames([TTSSpeakFrame(text=render_initial_message(ctx))])
 
