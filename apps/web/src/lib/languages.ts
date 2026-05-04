@@ -15,7 +15,7 @@ export type LanguageEntry = {
 };
 
 export const LANGUAGES: LanguageEntry[] = [
-  { code: "en", name: "English", nativeName: "English", flag: "🇬🇧", codeSwitching: true },
+  { code: "en", name: "English", nativeName: "English", flag: "🇺🇸", codeSwitching: true },
   { code: "es", name: "Spanish", nativeName: "Español", flag: "🇪🇸", codeSwitching: true },
   { code: "fr", name: "French", nativeName: "Français", flag: "🇫🇷", codeSwitching: true },
   { code: "de", name: "German", nativeName: "Deutsch", flag: "🇩🇪", codeSwitching: true },
