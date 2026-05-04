@@ -33,18 +33,18 @@ gcloud services enable \
 if gcloud sql instances describe "$INSTANCE" --project="$PROJECT_ID" >/dev/null 2>&1; then
   echo "==> Instance $INSTANCE already exists — skipping create"
 else
-  echo "==> Creating Cloud SQL instance $INSTANCE in $REGION ($DB_TIER, $DB_VERSION)"
+  echo "==> Creating Cloud SQL instance $INSTANCE in $REGION ($DB_TIER, $DB_VERSION, ENTERPRISE)"
   gcloud sql instances create "$INSTANCE" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --database-version="$DB_VERSION" \
+    --edition=ENTERPRISE \
     --tier="$DB_TIER" \
     --storage-type=SSD \
     --storage-size=10GB \
     --storage-auto-increase \
     --backup-start-time=03:00 \
-    --enable-point-in-time-recovery \
-    --database-flags=cloudsql.enable_pgvector=on
+    --enable-point-in-time-recovery
 fi
 
 echo "==> Ensuring database $DB_NAME exists"
