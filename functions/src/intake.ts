@@ -164,8 +164,33 @@ export async function intakeStart(req: Request, res: Response): Promise<void> {
       .update(sessions)
       .set({ status: "failed", endedAt: new Date() })
       .where(eq(sessions.id, sessionId));
+
+    const twErr = err as { code?: number; message?: string; status?: number };
+
+    // Twilio error 21216 = "Account not allowed to call …" — trial accounts
+    // can only call verified caller IDs. Surface a helpful message so the
+    // user (or developer) knows what's going on.
+    if (twErr?.code === 21216) {
+      res.status(403).json({
+        error:
+          "This number isn't allowed on our trial Twilio plan yet. Add it to Verified Caller IDs in the Twilio console, or upgrade Twilio to call any number.",
+        twilioCode: 21216,
+      });
+      return;
+    }
+
+    // Twilio 21211 = invalid To phone, 21610 = unsubscribed, 21408 = perm denied.
+    if ([21211, 21610, 21408].includes(twErr?.code ?? -1)) {
+      res.status(400).json({
+        error: "We can't reach that number. Double-check the digits or try a different one.",
+        twilioCode: twErr.code,
+      });
+      return;
+    }
+
     res.status(502).json({
       error: "We couldn't place the call. Please try again in a moment.",
+      twilioCode: twErr?.code,
     });
   }
 }
