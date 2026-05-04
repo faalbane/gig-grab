@@ -5,10 +5,11 @@ import { LanguagePicker } from "./LanguagePicker";
 import { LANGUAGES, findLanguage, type LanguageEntry } from "@/lib/languages";
 
 const COUNTRY_CODES = [
-  { code: "+44", flag: "🇬🇧", country: "UK" },
   { code: "+1", flag: "🇺🇸", country: "US" },
+  { code: "+44", flag: "🇬🇧", country: "UK" },
   { code: "+1", flag: "🇨🇦", country: "Canada" },
   { code: "+353", flag: "🇮🇪", country: "Ireland" },
+  { code: "+61", flag: "🇦🇺", country: "Australia" },
   { code: "+34", flag: "🇪🇸", country: "Spain" },
   { code: "+33", flag: "🇫🇷", country: "France" },
   { code: "+49", flag: "🇩🇪", country: "Germany" },
@@ -16,6 +17,7 @@ const COUNTRY_CODES = [
   { code: "+351", flag: "🇵🇹", country: "Portugal" },
   { code: "+91", flag: "🇮🇳", country: "India" },
   { code: "+63", flag: "🇵🇭", country: "Philippines" },
+  { code: "+52", flag: "🇲🇽", country: "Mexico" },
   { code: "+48", flag: "🇵🇱", country: "Poland" },
   { code: "+40", flag: "🇷🇴", country: "Romania" },
   { code: "+380", flag: "🇺🇦", country: "Ukraine" },
@@ -25,7 +27,7 @@ type Props = { audience: "worker" | "employer" };
 
 export function VerifyForm({ audience }: Props) {
   const [language, setLanguage] = useState<LanguageEntry>(findLanguage("en")!);
-  const [countryCode, setCountryCode] = useState("+44");
+  const [countryCode, setCountryCode] = useState("+1");
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -131,7 +133,7 @@ export function VerifyForm({ audience }: Props) {
             autoComplete="tel-national"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="7700 900123"
+            placeholder="(555) 123-4567"
             className="flex-1 rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
             required
           />
