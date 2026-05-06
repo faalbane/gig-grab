@@ -24,9 +24,15 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Gig-grab Voice Agent")
 
+# We're reachable at TWO paths because Firebase Hosting proxies
+# https://gig-grab.web.app/agent/* to this service WITHOUT stripping the
+# /agent prefix. Direct Cloud Run access (if it ever works) hits the
+# bare paths. Both work.
+HEALTH_PATHS = ["/healthz", "/agent/healthz"]
+WS_PATHS = ["/ws", "/agent/ws"]
 
-@app.get("/healthz")
-async def healthz():
+
+def _healthz():
     return {
         "service": "gig-grab-agent",
         "status": "ok",
@@ -34,8 +40,21 @@ async def healthz():
     }
 
 
+for _p in HEALTH_PATHS:
+    app.add_api_route(_p, _healthz, methods=["GET"])
+
+
 @app.websocket("/ws")
-async def ws_endpoint(websocket: WebSocket):
+async def ws_endpoint_root(websocket: WebSocket):
+    await _ws_handler(websocket)
+
+
+@app.websocket("/agent/ws")
+async def ws_endpoint_prefixed(websocket: WebSocket):
+    await _ws_handler(websocket)
+
+
+async def _ws_handler(websocket: WebSocket):
     await websocket.accept()
     qs = parse_qs(urlparse(str(websocket.url)).query)
     session_id = (qs.get("sessionId") or [""])[0]

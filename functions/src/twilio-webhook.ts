@@ -4,6 +4,7 @@ import twilio from "twilio";
 import { db, sessions } from "@gig-grab/db";
 import { eq } from "drizzle-orm";
 import { extractProfile } from "./profile";
+import { extractEmployerJob } from "./employer-extraction";
 import { verifyTwilioSignature } from "./security";
 
 /**
@@ -134,9 +135,22 @@ export async function twilioStatus(
   }
 
   if (mapped === "completed") {
-    void extractProfile(sessionId).catch((err) =>
-      console.error("[extract] failed", err),
-    );
+    // Route to the right extractor based on session.kind. Look up the row
+    // since Twilio's payload doesn't tell us.
+    const [row] = await db()
+      .select({ kind: sessions.kind })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1);
+    if (row?.kind === "employer_intake") {
+      void extractEmployerJob(sessionId).catch((err) =>
+        console.error("[extract:job] failed", err),
+      );
+    } else {
+      void extractProfile(sessionId).catch((err) =>
+        console.error("[extract:profile] failed", err),
+      );
+    }
   }
 
   res.status(204).send();
