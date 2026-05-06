@@ -207,8 +207,11 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     return task
 
 
-async def run_agent(websocket, cfg: AgentConfig):
-    serializer = TwilioFrameSerializer(stream_sid=cfg.session_id)
+async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
+    # stream_sid is Twilio's MZ… identifier from the start frame; the serializer
+    # echoes it back on every outbound media frame so Twilio routes audio to
+    # the right call leg. cfg.session_id is OUR DB session UUID — separate concern.
+    serializer = TwilioFrameSerializer(stream_sid=stream_sid)
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
         params=FastAPIWebsocketParams(

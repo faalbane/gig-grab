@@ -1,15 +1,17 @@
 """FastAPI entrypoint for the Gig-grab voice agent.
 
-Cloud Run sets PORT (default 8080). Twilio Media Streams connects to
-wss://<service-url>/ws?sessionId=<uuid>&language=<code>.
+Cloud Run / Render sets PORT (default 8080). Twilio Media Streams connects to
+wss://<service-url>/ws — Twilio strips query strings from the connect URL and
+delivers query params + <Parameter> children as `customParameters` in the
+first JSON `start` frame, so we read them there.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
-from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import uvicorn
@@ -56,18 +58,59 @@ async def ws_endpoint_prefixed(websocket: WebSocket):
 
 async def _ws_handler(websocket: WebSocket):
     await websocket.accept()
-    qs = parse_qs(urlparse(str(websocket.url)).query)
-    session_id = (qs.get("sessionId") or [""])[0]
-    language = (qs.get("language") or ["en"])[0]
-    audience = (qs.get("audience") or ["worker"])[0]
-    if not session_id:
-        logger.warning("ws connect missing sessionId — closing")
+
+    # Twilio Media Streams sequence on every connect:
+    #   1. {"event":"connected","protocol":"Call","version":"1.0.0"}
+    #   2. {"event":"start","start":{"streamSid":"MZ…","callSid":"CA…",
+    #         "customParameters":{"sessionId":"…","language":"…","audience":"…"}}, …}
+    #   3. {"event":"media", …} — audio frames
+    # We consume frames 1 and 2 here so the pipeline starts with the audio stream.
+    stream_sid = ""
+    session_id = ""
+    language = "en"
+    audience = "worker"
+    try:
+        for _ in range(3):
+            msg = json.loads(await websocket.receive_text())
+            event = msg.get("event")
+            if event == "connected":
+                continue
+            if event == "start":
+                start = msg.get("start", {}) or {}
+                stream_sid = start.get("streamSid", "") or ""
+                params = start.get("customParameters", {}) or {}
+                session_id = params.get("sessionId", "") or ""
+                language = params.get("language", "en") or "en"
+                audience = params.get("audience", "worker") or "worker"
+                break
+            logger.warning(f"ws unexpected event before start: {event!r}")
+            await websocket.close(code=4400)
+            return
+        else:
+            logger.warning("ws never received start frame")
+            await websocket.close(code=4400)
+            return
+    except WebSocketDisconnect:
+        logger.info("ws disconnected before start frame")
+        return
+    except Exception:
+        logger.exception("ws crashed reading start frame")
+        await websocket.close(code=1011)
+        return
+
+    if not session_id or not stream_sid:
+        logger.warning(
+            f"ws start missing required fields: session_id={session_id!r} stream_sid={stream_sid!r}"
+        )
         await websocket.close(code=4400)
         return
+
     cfg = AgentConfig(session_id=session_id, language=language, audience=audience)
-    logger.info(f"ws session start: {session_id} lang={language}")
+    logger.info(
+        f"ws session start: session={session_id} stream={stream_sid} lang={language}"
+    )
     try:
-        await run_agent(websocket, cfg)
+        await run_agent(websocket, cfg, stream_sid=stream_sid)
     except WebSocketDisconnect:
         logger.info(f"ws session disconnected: {session_id}")
     except Exception:

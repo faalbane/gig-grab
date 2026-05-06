@@ -3,7 +3,7 @@ import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
 import { db, candidates, sessions } from "@gig-grab/db";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   isAllowedLanguage,
   signSessionToken,
@@ -18,7 +18,6 @@ type IntakeBody = {
 };
 
 const E164 = /^\+[1-9]\d{6,14}$/;
-const RATE_LIMIT_WINDOW_MS = 60_000;
 
 class BadInput extends Error {
   constructor(message: string, readonly status = 400) {
@@ -52,13 +51,20 @@ function parse(body: IntakeBody) {
   return { phone, language, audience };
 }
 
+// Only block re-triggers while there's a call IN FLIGHT to this number.
+// Once Twilio reports a terminal status (no-answer / busy / completed / failed)
+// the candidate can immediately retry — common case is "I missed it, call me again."
 async function checkPhoneRateLimit(phone: string): Promise<boolean> {
-  const cutoff = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
   const recent = await db()
     .select({ id: sessions.id })
     .from(sessions)
     .innerJoin(candidates, eq(candidates.id, sessions.candidateId))
-    .where(and(eq(candidates.phone, phone), gt(sessions.startedAt, cutoff)))
+    .where(
+      and(
+        eq(candidates.phone, phone),
+        inArray(sessions.status, ["ringing", "in_progress"]),
+      ),
+    )
     .limit(1);
   return recent.length === 0;
 }
@@ -109,7 +115,7 @@ export async function intakeStart(req: Request, res: Response): Promise<void> {
   const allowed = await checkPhoneRateLimit(parsed.phone);
   if (!allowed) {
     res.status(429).json({
-      error: "Hold on — we already called this number a moment ago.",
+      error: "We're still calling that number — pick up the phone, or wait ~30s for it to time out.",
     });
     return;
   }
