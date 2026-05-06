@@ -10,7 +10,7 @@ Self-contained guide. Pick this up on any machine with `gcloud`, `firebase`, and
 |---|---|---|
 | Web app | Firebase Hosting | https://gig-grab.web.app |
 | API (Cloud Functions v2) | Cloud Run · `api` · europe-west2 | https://gig-grab.web.app/api/* (proxy) · https://api-353215144615.europe-west2.run.app (direct, works) |
-| Voice agent (Pipecat) | Cloud Run · `gigrab-agent` · europe-west2 | https://gig-grab.web.app/agent/* (proxy, intermittent — see ⚠ below) · direct .run.app currently broken |
+| Voice agent (Pipecat) | **Render · `gigrab-agent` · Frankfurt** | https://gig-grab.onrender.com/healthz · WS at wss://gig-grab.onrender.com/ws |
 | Database | Cloud SQL Postgres 16 | `gig-grab:europe-west2:gig-grab-db` (Auth Proxy on :5433) |
 | Object storage | Firebase Storage | `gig-grab.firebasestorage.app` |
 | Auth | Firebase Auth | Google + Microsoft + email magic link |
@@ -20,21 +20,17 @@ Self-contained guide. Pick this up on any machine with `gcloud`, `firebase`, and
 
 ---
 
-## ⚠ The agent-routing gotcha — pick A, B, or C
+## ⚠ Decision history — agent on Render (executed 2026-05-06)
 
-GCP has a project-level Cloud Run frontend bug in this account: any service deployed via `gcloud run deploy` returns Google's edge 404 from its public `.run.app` URL. Verified by a stock hello-world FastAPI in both europe-west2 and us-central1. **Firebase-deployed Cloud Run services (the `api` function) work fine** because they get registered through Firebase's deploy path. Only the `gigrab-agent` is affected.
+GCP has a project-level Cloud Run frontend bug in this account: any service deployed via `gcloud run deploy` returns Google's edge 404 from its public `.run.app` URL (verified with a stock hello-world). Firebase-deployed Cloud Run services (the `api` function) work fine because they register through Firebase's deploy path. Only `gigrab-agent` was affected.
 
-**Workaround:** the `firebase.json` rewrites `/agent/**` to the Cloud Run service so callers reach it via `https://gig-grab.web.app/agent/...`. This was working briefly then started returning 404 again (likely tied to traffic-split propagation). It's flaky.
+**Resolution:** moved the agent to **Render** (Frankfurt, Starter $7/mo, Hobby workspace). Same Dockerfile, no code changes to the pipeline. GitHub auto-deploy on push to `main`. Service: https://gig-grab.onrender.com (`srv-d7tm084m0tmc73ctijpg`, workspace `tea-d7tlusi8qa3s73c9c2sg`).
 
-### Three paths forward — pick one and proceed
+A separate GCP support ticket can still be filed in parallel; if/when GCP fixes the routing, we may move the agent back. Render is treated as a bridge, not a destination.
 
-| Option | Time | Cost | Pros | Cons |
-|---|---|---|---|---|
-| **A. GCP support ticket + use placeholder TwiML** | 5 min to file, 1–3 days wait | $0 | Pure GCP; no new vendor | Real candidate calls hear "AI being set up shortly" until support resolves |
-| **B. Move agent to Render or Fly.io, keep everything else on GCP** | ~15 min | ~$5–10/mo | Works today; rest stays single-cloud | One non-GCP vendor to manage |
-| **C. Keep iterating on Cloud Run + Hosting proxy** | unknown | $0 | Pure GCP | No SLA; we already burned ~30 min on this with no fix |
+### Twilio Media Streams gotcha
 
-**Recommendation:** B for speed (file the GCP ticket in parallel as A). The Render/Fly path uses the same Pipecat code with a different deploy target — zero code changes beyond the deploy script.
+Twilio **strips query strings from the WebSocket connect URL**. When the api builds `wss://gig-grab.onrender.com/ws?sessionId=…&language=…`, Twilio dials bare `/ws` and delivers the params inside the first JSON `start` frame's `customParameters` field. The agent (`apps/agent/src/gigrab/main.py`) consumes the `connected` + `start` frames first, extracts `customParameters.sessionId`, `language`, `audience`, plus `start.streamSid`, then runs the Pipecat pipeline. **Don't** revert this to `parse_qs(websocket.url)` — it returns empty.
 
 ---
 
@@ -54,8 +50,8 @@ GCP has a project-level Cloud Run frontend bug in this account: any service depl
 
 | Service | Purpose | Source | Special config |
 |---|---|---|---|
-| `api` | Cloud Functions v2 (Node 20). Multi-route: `/health`, `POST /intake/start`, `GET\|POST /twilio/voice/:id`, `POST /twilio/status/:id`, `GET /sessions/:id/profile`, `POST /auth/link` | `functions/` (esbuild bundle to `lib/index.js`) | Cloud SQL mount + 6 secret bindings + `AGENT_WS_URL` + `PUBLIC_API_URL` env. **`firebase deploy --only functions` resets these** — always re-run the gcloud `update` after. |
-| `gigrab-agent` | Pipecat voice agent (Python 3.12). Twilio Media Streams WebSocket on `/ws` and `/agent/ws` | `apps/agent/` (Dockerfile build) | gen2, 2GB/2vCPU, 3600s timeout. Cloud SQL mount + 5 secret bindings. |
+| `api` | Cloud Functions v2 (Node 20). Multi-route: `/health`, `POST /intake/start`, `GET\|POST /twilio/voice/:id`, `POST /twilio/status/:id`, `GET /sessions/:id/profile`, `POST /auth/link` | `functions/` (esbuild bundle to `lib/index.js`) | Cloud SQL mount + 6 secret bindings + `AGENT_WS_URL=wss://gig-grab.onrender.com/ws` + `PUBLIC_API_URL` env. Firebase CLI 15.x preserves Cloud Run env / mounts / IAM across deploys (the older "always re-run gcloud update" advice no longer applies). Verify with the read-only commands below if uncertain. |
+| `gigrab-agent` | **Now on Render** — see "Decision history" above. Repo path `apps/agent/` deploys via Render's GitHub auto-deploy on push to `main`. Pipecat voice agent (Python 3.12). Twilio Media Streams WebSocket on `/ws`. | `apps/agent/` (Dockerfile build) | Render Starter, Frankfurt. 5 env vars (DATABASE_URL TCP-form + 4 AI keys) set in Render dashboard. |
 
 ### Cloud SQL Postgres 16
 
@@ -66,7 +62,7 @@ GCP has a project-level Cloud Run frontend bug in this account: any service depl
 - **User:** `gig_app` (password in Secret Manager as `DATABASE_URL`)
 - **Extensions:** `vector` 0.8.1, `pg_trgm` 1.6
 - **Storage:** SSD 10GB auto-increase, daily backups @ 03:00, point-in-time recovery on
-- **Public IP:** `34.105.197.42` (no authorized networks; access only via Cloud SQL Auth Proxy or unix socket)
+- **Public IP:** `34.105.197.42` — `requireSsl=true`, `authorizedNetworks=0.0.0.0/0` (set 2026-05-06 so Render can connect over TCP+SSL). Tighten to a Cloud SQL Auth Proxy sidecar before scale-ready; document in `feedback_db_connectivity` memory.
 - **Connection name (for Auth Proxy + unix socket):** `gig-grab:europe-west2:gig-grab-db`
 - **Schema:** 11 tables — `candidates`, `profile_cards`, `sessions`, `transcript_turns`, `employers`, `ats_connections`, `jobs`, `matches`, `interviews`, `auto_apply_rules`, `alerts`. See `packages/db/src/schema.ts` and `packages/db/migrations/`.
 
@@ -132,22 +128,26 @@ Browser (https://gig-grab.web.app)
   │                              ├── calls out to: Twilio REST (calls.create, validation), Anthropic API
   │                              └── verifies: Firebase Auth ID tokens (firebase-admin)
   │
-  ├── /agent/**                Firebase Hosting REWRITE → Cloud Run service `gigrab-agent` (europe-west2)
-  │                              ├── Twilio Media Streams WebSocket land here (wss://…/agent/ws)
-  │                              ├── reads secrets: DATABASE_URL, DEEPGRAM_API_KEY, GROQ_API_KEY, CARTESIA_API_KEY, ANTHROPIC_API_KEY
-  │                              ├── pipeline: Silero VAD → Deepgram Nova-3 multi STT → Groq Llama 3.1 8B LLM → Cartesia Sonic-2 TTS
-  │                              ├── writes: Cloud SQL transcript_turns (asyncpg)
-  │                              └── system prompts:
-  │                                    apps/agent/src/prompts/candidate_interview.py  (8 categories)
-  │                                    apps/agent/src/prompts/employer_intake.py      (9 categories)
+  └── (no /agent/* rewrite anymore — Twilio dials Render directly via api's TwiML)
+
+Render (https://gig-grab.onrender.com)
+  └── gigrab-agent (Pipecat) — Twilio Media Streams WebSocket at wss://gig-grab.onrender.com/ws
+       ├── reads env (Render dashboard): DATABASE_URL (TCP+SSL), DEEPGRAM_API_KEY, GROQ_API_KEY, CARTESIA_API_KEY, ANTHROPIC_API_KEY
+       ├── pipeline: Silero VAD → Deepgram Nova-3 multi STT → Groq Llama 3.1 8B LLM → Cartesia Sonic-2 TTS
+       ├── consumes Twilio start frame to get sessionId / streamSid / language (NOT from URL — Twilio strips query)
+       ├── writes: Cloud SQL transcript_turns (asyncpg over public IP + sslmode=require)
+       └── system prompts:
+             apps/agent/src/prompts/candidate_interview.py  (8 categories)
+             apps/agent/src/prompts/employer_intake.py      (9 categories)
   │
   └── ** (anything else)       Firebase Hosting falls through to /index.html (Next.js static export)
 
 Twilio (outbound on candidate's phone)
   │ user picks up
   ├── GET /api/twilio/voice/:sessionId
-  │     → returns TwiML <Connect><Stream wss://gig-grab.web.app/agent/ws?…/></Connect>
-  │     → Twilio opens WebSocket to gigrab-agent
+  │     → returns TwiML <Connect><Stream url="wss://gig-grab.onrender.com/ws?sessionId=…&language=…"/></Connect>
+  │     → Twilio strips the query string, dials wss://gig-grab.onrender.com/ws bare
+  │     → params arrive in the start frame's customParameters (see "Twilio Media Streams gotcha")
   │
   └── POST /api/twilio/status/:sessionId  (during + after call)
         → verifies X-Twilio-Signature
@@ -172,7 +172,7 @@ Cloud SQL Postgres (gig-grab:europe-west2:gig-grab-db)
 | Path | What deploys it |
 |---|---|
 | `apps/web/` | `firebase deploy --only hosting` |
-| `apps/agent/` | `gcloud run deploy gigrab-agent --source .` |
+| `apps/agent/` | `git push origin main` — Render auto-deploys from GitHub |
 | `functions/` | `firebase deploy --only functions` |
 | `packages/db/` | not a deploy target (schema applied via `pnpm db:push` or migrations) |
 | `packages/shared/` | not a deploy target (consumed by web at build time) |
@@ -221,50 +221,36 @@ firebase deploy --only hosting --project gig-grab
 
 ```bash
 firebase deploy --only functions --project gig-grab --force
-
-# CRITICAL: firebase deploy resets Cloud Run env vars + Cloud SQL mount + IAM.
-# Always re-run these immediately:
-gcloud run services update api \
-  --region=europe-west2 --project=gig-grab \
-  --add-cloudsql-instances=gig-grab:europe-west2:gig-grab-db \
-  --update-env-vars="AGENT_WS_URL=wss://gig-grab.web.app/agent/ws,PUBLIC_API_URL=https://api-353215144615.europe-west2.run.app" \
-  --quiet
-
-gcloud run services add-iam-policy-binding api \
-  --region=europe-west2 --project=gig-grab \
-  --member=allUsers --role=roles/run.invoker --quiet
 ```
 
-### Agent deploy (~5 min — Cloud Build)
+> Firebase CLI 15.x preserves Cloud Run env vars, Cloud SQL mount, and IAM bindings across deploys (verified 2026-05-06 — `AGENT_WS_URL`, `PUBLIC_API_URL`, the `/cloudsql/…` mount, and `allUsers` invoker IAM all stayed intact after a `firebase deploy --only functions`). The older "always re-run gcloud update afterward" instruction is no longer needed.
+>
+> If you ever suspect a reset, verify with these read-only commands:
+>
+> ```bash
+> gcloud run services describe api --region=europe-west2 --project=gig-grab \
+>   --format="value(spec.template.spec.containers[0].env)" | tr ',' '\n' | grep -E "AGENT_WS_URL|PUBLIC_API_URL"
+> gcloud run services describe api --region=europe-west2 --project=gig-grab \
+>   --format="value(spec.template.metadata.annotations.'run.googleapis.com/cloudsql-instances')"
+> gcloud run services get-iam-policy api --region=europe-west2 --project=gig-grab \
+>   --format="value(bindings)" | grep -E "allUsers|invoker"
+> ```
+
+### Agent deploy (~5–8 min — Render auto-build)
 
 ```bash
-cd apps/agent
-
-gcloud run deploy gigrab-agent \
-  --source . \
-  --region europe-west2 \
-  --project gig-grab \
-  --platform managed \
-  --allow-unauthenticated \
-  --ingress all \
-  --execution-environment gen2 \
-  --memory 2Gi \
-  --cpu 2 \
-  --timeout 3600 \
-  --min-instances 0 \
-  --max-instances 10 \
-  --concurrency 8 \
-  --port 8080 \
-  --add-cloudsql-instances gig-grab:europe-west2:gig-grab-db \
-  --set-secrets DATABASE_URL=DATABASE_URL:latest,DEEPGRAM_API_KEY=DEEPGRAM_API_KEY:latest,GROQ_API_KEY=GROQ_API_KEY:latest,CARTESIA_API_KEY=CARTESIA_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest \
-  --quiet
-
-# Force latest revision to take 100% traffic (sometimes needed after deploy)
-gcloud run services update-traffic gigrab-agent \
-  --region=europe-west2 --project=gig-grab --to-latest --quiet
+git push origin main                    # Render auto-deploys on push to main
+render deploys list srv-d7tm084m0tmc73ctijpg --output text --confirm
+render logs --resources srv-d7tm084m0tmc73ctijpg --tail
 ```
 
-> ⚠ Don't queue back-to-back agent deploys hoping a different config fixes the routing. See `feedback_surgical_execution` in memory.
+Manual redeploy (no code change, e.g. env-var update):
+
+```
+Dashboard → gigrab-agent → Manual Deploy → Deploy latest commit
+```
+
+> ⚠ Don't queue back-to-back agent deploys hoping a different config fixes a runtime issue. See `feedback_surgical_execution` in memory.
 
 ### Database migrations
 
@@ -293,9 +279,10 @@ pnpm --filter @gig-grab/functions verify-caller "+1XXXXXXXXXX" "Their name"
 | Want to… | Command |
 |---|---|
 | Hit production API health | `curl https://gig-grab.web.app/api/health` |
-| Hit agent (proxy) | `curl https://gig-grab.web.app/agent/healthz` |
+| Hit agent health (Render) | `curl https://gig-grab.onrender.com/healthz` |
 | Tail api logs | `gcloud run services logs tail api --region=europe-west2 --project=gig-grab` |
-| Tail agent logs | `gcloud run services logs tail gigrab-agent --region=europe-west2 --project=gig-grab` |
+| Tail agent logs | `render logs --resources srv-d7tm084m0tmc73ctijpg --tail` |
+| Query agent logs in window | `render logs --resources srv-d7tm084m0tmc73ctijpg --start <ISO> --end <ISO> --output text --confirm` |
 | Search api errors last 5 min | `gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="api" AND severity>=WARNING' --project=gig-grab --limit=20 --freshness=5m` |
 | Browse production DB | `pnpm --filter @gig-grab/db studio` (with proxy running on :5433) |
 | List recent Twilio calls | `curl -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Calls.json?PageSize=5"` |
@@ -311,7 +298,8 @@ pnpm --filter @gig-grab/functions verify-caller "+1XXXXXXXXXX" "Their name"
 - `docs/twilio-support.md` — playbook for Twilio support cases (the verified-callers ticket)
 - `docs/dev-onboarding.md` — fast-path setup for new team members
 - `apps/web/README.md`, `apps/agent/README.md`, `packages/db/README.md` — per-package notes
-- `.claude/projects/-Users-godfirstamen-Documents-gig-grab/memory/MEMORY.md` — index of project memory (loaded into AI assistant context every session)
+- `CLAUDE.md` — auto-loaded by Claude Code at session start; lightweight overview + durable rules + pointers
+- `.claude/projects/-Users-faalbane-Documents-gig-grab/memory/MEMORY.md` — index of project memory (loaded into AI assistant context every session)
 
 ---
 
