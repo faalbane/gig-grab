@@ -44,20 +44,44 @@ export async function twilioVoice(
     .where(eq(sessions.id, sessionId));
 
   const wsBase = process.env.AGENT_WS_URL;
-  if (!wsBase) {
-    const hi =
-      "Hi! Thanks for calling GigGrab. Our AI recruiter is being set up right now — please call back in a few minutes. Talk to you soon.";
-    twiml.say({ voice: "Polly.Joanna" }, hi);
+  const placeholder =
+    "Hi! Thanks for calling GigGrab. Our AI recruiter is being set up right now — please try again in a few minutes. Talk to you soon. Goodbye.";
+
+  // Pre-flight the agent: if its /healthz isn't reachable, serve a friendly
+  // placeholder so the candidate doesn't sit in dead air. Once the agent
+  // is reachable from Twilio's network the next call will succeed.
+  if (wsBase) {
+    const httpsBase = wsBase.replace(/^wss?:\/\//, "https://").replace(/\/ws$/, "");
+    const healthOk = await checkAgentHealth(`${httpsBase}/healthz`);
+    if (!healthOk) {
+      console.warn(`[twiml] agent ${httpsBase}/healthz unreachable, serving placeholder`);
+      twiml.say({ voice: "Polly.Joanna" }, placeholder);
+      res.type("text/xml").send(twiml.toString());
+      return;
+    }
+    const wsUrl = `${wsBase}?sessionId=${encodeURIComponent(
+      sessionId,
+    )}&language=${encodeURIComponent(session.language ?? "en")}`;
+    const connect = twiml.connect();
+    connect.stream({ url: wsUrl });
     res.type("text/xml").send(twiml.toString());
     return;
   }
 
-  const wsUrl = `${wsBase}?sessionId=${encodeURIComponent(
-    sessionId,
-  )}&language=${encodeURIComponent(session.language ?? "en")}`;
-  const connect = twiml.connect();
-  connect.stream({ url: wsUrl });
+  twiml.say({ voice: "Polly.Joanna" }, placeholder);
   res.type("text/xml").send(twiml.toString());
+}
+
+async function checkAgentHealth(url: string): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1500);
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    return r.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**
