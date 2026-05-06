@@ -211,7 +211,15 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
     # stream_sid is Twilio's MZ… identifier from the start frame; the serializer
     # echoes it back on every outbound media frame so Twilio routes audio to
     # the right call leg. cfg.session_id is OUR DB session UUID — separate concern.
-    serializer = TwilioFrameSerializer(stream_sid=stream_sid)
+    #
+    # auto_hang_up=False because Pipecat 0.0.108 makes that the toggle for
+    # "the agent calls Twilio's REST API to terminate the call when the
+    # pipeline ends" — which requires the Twilio account_sid/auth_token to
+    # be plumbed in. We don't need it: the candidate hangs up their phone,
+    # Twilio closes the WS, and on_client_disconnected marks the session
+    # completed in DB. If we ever want the AI to forcibly end the call
+    # (e.g. abuse / off-topic), pass account_sid + auth_token + call_sid here.
+    serializer = TwilioFrameSerializer(stream_sid=stream_sid, auto_hang_up=False)
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
         params=FastAPIWebsocketParams(
