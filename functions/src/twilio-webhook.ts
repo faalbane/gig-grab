@@ -60,11 +60,14 @@ export async function twilioVoice(
       res.type("text/xml").send(twiml.toString());
       return;
     }
-    const wsUrl = `${wsBase}?sessionId=${encodeURIComponent(
-      sessionId,
-    )}&language=${encodeURIComponent(session.language ?? "en")}`;
+    // Twilio strips query strings from <Stream url="…"/> on the WebSocket
+    // connect URL AND does NOT promote them to customParameters. To pass
+    // session metadata, use <Parameter> child elements — Twilio delivers
+    // them in the start frame's `start.customParameters` field.
     const connect = twiml.connect();
-    connect.stream({ url: wsUrl });
+    const stream = connect.stream({ url: wsBase });
+    stream.parameter({ name: "sessionId", value: sessionId });
+    stream.parameter({ name: "language", value: session.language ?? "en" });
     res.type("text/xml").send(twiml.toString());
     return;
   }
