@@ -1,0 +1,50 @@
+# Base image for gig-grab agent — bakes the heavy + slow-changing deps.
+#
+# Rebuild: trigger the "Build agent base image" GitHub Action manually
+# whenever apps/agent/pyproject.toml dependencies change. Per-deploy
+# Dockerfile (apps/agent/Dockerfile) FROMs this image and only adds the
+# app source, so per-push agent deploys drop from ~6 min to ~1.5–2 min.
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libsndfile1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPU-only torch via PyTorch's CPU index — skips ~3 GB of NVIDIA CUDA wheels
+# we never use on Render's CPU instances.
+RUN pip install --upgrade pip \
+    && pip install --index-url https://download.pytorch.org/whl/cpu \
+        "torch>=2.4,<2.12" "torchaudio>=2.4,<2.12"
+
+# Install the rest of the agent's runtime deps. Mirror pyproject.toml's
+# `[project].dependencies` minus the package itself. When this list drifts
+# from pyproject.toml, rebuild the base image (workflow_dispatch).
+RUN pip install \
+    "pipecat-ai>=0.0.70,<1.0" \
+    "loguru>=0.7" \
+    "websockets>=13" \
+    "soundfile>=0.12" \
+    "numpy>=1.26" \
+    "openai>=1.50" \
+    "noisereduce>=3.0" \
+    "av>=12.0" \
+    "silero-vad>=5.1" \
+    "fastapi>=0.115" \
+    "uvicorn[standard]>=0.32" \
+    "deepgram-sdk>=3.7" \
+    "groq>=0.13" \
+    "anthropic>=0.39" \
+    "cartesia>=1.0" \
+    "twilio>=9.0" \
+    "asyncpg>=0.30" \
+    "python-dotenv>=1.0" \
+    "pydantic>=2.9"
+
+WORKDIR /app

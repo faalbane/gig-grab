@@ -1,0 +1,46 @@
+name: Build agent base image
+
+# Manual trigger only. Run when apps/agent/pyproject.toml deps change.
+# After this completes, the per-deploy build at apps/agent/Dockerfile picks
+# up the new base on next git push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (e.g. v1, v2)"
+        required: true
+        default: "v1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase repo owner
+        id: owner
+        run: echo "value=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/agent
+          file: apps/agent/Dockerfile.base
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.value }}/gigrab-agent-base:${{ inputs.tag }}
+            ghcr.io/${{ steps.owner.outputs.value }}/gigrab-agent-base:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
