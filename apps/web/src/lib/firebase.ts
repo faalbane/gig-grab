@@ -2,12 +2,15 @@ import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import {
   GoogleAuthProvider,
   OAuthProvider,
+  RecaptchaVerifier,
   getAuth,
   isSignInWithEmailLink,
   sendSignInLinkToEmail,
   signInWithEmailLink,
+  signInWithPhoneNumber,
   signInWithPopup,
   type Auth,
+  type ConfirmationResult,
 } from "firebase/auth";
 
 const config = {
@@ -63,6 +66,39 @@ export async function finishEmailMagicLink() {
   const result = await signInWithEmailLink(auth(), email, window.location.href);
   window.localStorage.removeItem(STORAGE_KEY_EMAIL);
   return result;
+}
+
+// ----- Phone sign-in (Firebase Auth phone provider) -----
+//
+// Requires the Phone provider to be enabled in Firebase Console:
+//   Authentication → Sign-in method → Phone → Enable.
+// Firebase uses an invisible reCAPTCHA on the page; we mount it once on a
+// hidden div with id="phone-auth-recaptcha".
+
+let _recaptcha: RecaptchaVerifier | null = null;
+
+function getRecaptcha(): RecaptchaVerifier {
+  if (_recaptcha) return _recaptcha;
+  // The container element is rendered by the AuthCard component.
+  _recaptcha = new RecaptchaVerifier(auth(), "phone-auth-recaptcha", {
+    size: "invisible",
+  });
+  return _recaptcha;
+}
+
+/** Send the SMS verification code. Returns the ConfirmationResult to confirm later. */
+export async function startPhoneSignIn(
+  phoneE164: string,
+): Promise<ConfirmationResult> {
+  return signInWithPhoneNumber(auth(), phoneE164, getRecaptcha());
+}
+
+/** Confirm the 6-digit SMS code. Returns the user credential. */
+export async function confirmPhoneCode(
+  confirmation: ConfirmationResult,
+  code: string,
+) {
+  return confirmation.confirm(code);
 }
 
 export async function postAuthLink(idToken: string, candidateId?: string) {
