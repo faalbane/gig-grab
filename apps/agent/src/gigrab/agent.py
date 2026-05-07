@@ -10,6 +10,7 @@ Plus a side-channel that streams transcript turns into Postgres.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -243,12 +244,23 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
     # handler — see build_pipeline note).
     await db.update_session_status(session_id=cfg.session_id, status="in_progress")
 
-    # Queue the localized greeting up front so the AI speaks first; LLM
-    # picks up from the candidate's reply via the user-context aggregator.
+    # Run the pipeline in the background so we can inject the greeting
+    # AFTER the pipeline + transport + Cartesia/Deepgram clients have
+    # initialized. Queueing TTSSpeakFrame before runner.run leaves it
+    # buffered and Cartesia's WS never gets a chance to connect.
+    runner = PipelineRunner()
+    run_task = asyncio.create_task(runner.run(task))
+
+    # Brief settle so StartFrame propagates and TTS service is ready.
+    await asyncio.sleep(0.5)
+
     ctx = CallContext(language=cfg.language, e164="", audience=cfg.audience)
     greeting = render_initial_message(ctx)
     if greeting:
+        logger.info(f"[agent] queuing greeting ({len(greeting)} chars) for session {cfg.session_id}")
         await task.queue_frames([TTSSpeakFrame(text=greeting)])
 
-    runner = PipelineRunner()
-    await runner.run(task)
+    try:
+        await run_task
+    except asyncio.CancelledError:
+        raise
