@@ -223,26 +223,17 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ),
     )
 
-    # kickoff_state["fired"] flips True the moment any path successfully
-    # triggers the agent's first turn. Both on_client_connected (canonical
-    # pipecat hook) and the post-start fallback in run_agent() check it
-    # before firing, so the candidate hears one greeting, not two.
-    kickoff_state = {"fired": False}
-
+    # NOTE on the kickoff path: confirmed via diagnostic logs that
+    # task.queue_frames([LLMRunFrame()]) at PipelineTask::Source is silently
+    # dropped — the frame never reaches db_writer (which sits before the
+    # user_aggregator). The on_client_connected handler used to do that
+    # queue and was effectively a no-op. We now drive the kickoff in
+    # run_agent() by calling user_aggregator.push_frame directly, which
+    # injects the frame downstream of the source-routing chain. Keeping
+    # this handler for the lifecycle log only.
     @transport.event_handler("on_client_connected")
     async def _on_connect(t, client):
-        if kickoff_state["fired"]:
-            return
-        kickoff_state["fired"] = True
         logger.info(f"[agent] on_client_connected fired (session={cfg.session_id})")
-        kickoff = (
-            f"You're starting an outbound call to a candidate. Greet them "
-            f"warmly in {cfg.language}, introduce yourself as Sarah from "
-            f"Gig-grab (an AI hiring assistant), and ask their name plus "
-            f"the language they're most comfortable speaking. Under 25 words."
-        )
-        context.add_message({"role": "user", "content": kickoff})
-        await task.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
     async def _on_disconnect(t, client):
@@ -251,7 +242,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         )
         await task.queue_frame(EndFrame())
 
-    return task, context, user_aggregator, kickoff_state
+    return task, context, user_aggregator
 
 
 async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
@@ -281,33 +272,32 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
         ),
     )
 
-    task, context, user_aggregator, kickoff_state = await build_pipeline(transport, cfg)
+    task, context, user_aggregator = await build_pipeline(transport, cfg)
 
     await db.update_session_status(session_id=cfg.session_id, status="in_progress")
 
     runner = PipelineRunner()
     run_task = asyncio.create_task(runner.run(task))
 
+    # Wait for StartFrame to fully propagate so Deepgram / TTS clients are
+    # initialised before we push the kickoff downstream.
     await asyncio.sleep(2.0)
 
-    # If on_client_connected already fired, kickoff_state["fired"] is True.
-    # Otherwise, push LLMRunFrame DIRECTLY into the user_aggregator —
-    # bypassing PipelineTask::Source / RTVIProcessor / input transport / STT.
-    # This proves whether source-routing is the blocker. push_frame on a
-    # FrameProcessor sends the frame to its own queue / next downstream link.
-    if not kickoff_state["fired"]:
-        kickoff_state["fired"] = True
-        kickoff = (
-            f"You're starting an outbound call to a candidate. Greet them "
-            f"warmly in {cfg.language}, introduce yourself as Sarah from "
-            f"Gig-grab (an AI hiring assistant), and ask their name plus "
-            f"the language they're most comfortable speaking. Under 25 words."
-        )
-        context.add_message({"role": "user", "content": kickoff})
-        logger.info("[agent] post-start direct-push kickoff via user_aggregator")
-        await user_aggregator.push_frame(LLMRunFrame(), FrameDirection.DOWNSTREAM)
-    else:
-        logger.info("[agent] post-start kickoff skipped — on_client_connected already fired")
+    # Add the kickoff "user" message and push LLMRunFrame DIRECTLY into the
+    # user_aggregator. Going through task.queue_frames(...) routes through
+    # PipelineTask::Source → RTVIProcessor → input transport → STT, which
+    # silently drops control frames (confirmed via db-writer diagnostic
+    # logs — only StartFrame ever passed through). push_frame from the
+    # aggregator pushes downstream to LLM directly.
+    kickoff = (
+        f"You're starting an outbound call to a candidate. Greet them "
+        f"warmly in {cfg.language}, introduce yourself as Sarah from "
+        f"Gig-grab (an AI hiring assistant), and ask their name plus "
+        f"the language they're most comfortable speaking. Under 25 words."
+    )
+    context.add_message({"role": "user", "content": kickoff})
+    logger.info("[agent] kickoff via user_aggregator.push_frame(LLMRunFrame, DOWNSTREAM)")
+    await user_aggregator.push_frame(LLMRunFrame(), FrameDirection.DOWNSTREAM)
 
     try:
         await run_task
