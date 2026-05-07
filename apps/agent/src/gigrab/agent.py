@@ -103,6 +103,18 @@ class TranscriptDbWriter(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
+        # DIAG: surface frames flowing through this point so we can confirm
+        # whether LLMRunFrame / TTSSpeakFrame / OpenAILLMContextFrame reach
+        # past the input transport + STT.
+        ftype = type(frame).__name__
+        if ftype not in {
+            "AudioRawFrame",
+            "InputAudioRawFrame",
+            "OutputAudioRawFrame",
+            "InterimTranscriptionFrame",
+        }:
+            logger.info(f"[db-writer] saw {ftype} dir={direction.name}")
+
         # Candidate speech (only finals — interim transcripts churn too much).
         if isinstance(frame, TranscriptionFrame) and frame.text.strip():
             try:
@@ -211,11 +223,27 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ),
     )
 
-    # NOTE: we don't rely on transport.event_handler("on_client_connected")
-    # for greeting — when main.py manually accepts the WS and consumes the
-    # connected/start frames before constructing the transport, that hook
-    # never fires. We queue the greeting directly in run_agent() once the
-    # pipeline is started instead.
+    # kickoff_state["fired"] flips True the moment any path successfully
+    # triggers the agent's first turn. Both on_client_connected (canonical
+    # pipecat hook) and the post-start fallback in run_agent() check it
+    # before firing, so the candidate hears one greeting, not two.
+    kickoff_state = {"fired": False}
+
+    @transport.event_handler("on_client_connected")
+    async def _on_connect(t, client):
+        if kickoff_state["fired"]:
+            return
+        kickoff_state["fired"] = True
+        logger.info(f"[agent] on_client_connected fired (session={cfg.session_id})")
+        kickoff = (
+            f"You're starting an outbound call to a candidate. Greet them "
+            f"warmly in {cfg.language}, introduce yourself as Sarah from "
+            f"Gig-grab (an AI hiring assistant), and ask their name plus "
+            f"the language they're most comfortable speaking. Under 25 words."
+        )
+        context.add_message({"role": "user", "content": kickoff})
+        await task.queue_frames([LLMRunFrame()])
+
     @transport.event_handler("on_client_disconnected")
     async def _on_disconnect(t, client):
         await db.update_session_status(
@@ -223,7 +251,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         )
         await task.queue_frame(EndFrame())
 
-    return task, context
+    return task, context, user_aggregator, kickoff_state
 
 
 async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
@@ -253,34 +281,33 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
         ),
     )
 
-    task, context = await build_pipeline(transport, cfg)
+    task, context, user_aggregator, kickoff_state = await build_pipeline(transport, cfg)
 
-    # Mark session in_progress now (replaces the no-op on_client_connected
-    # handler — see build_pipeline note).
     await db.update_session_status(session_id=cfg.session_id, status="in_progress")
 
-    # Run the pipeline in the background so we can fire the kickoff AFTER
-    # StartFrame has propagated and Deepgram/Cartesia clients are wired.
     runner = PipelineRunner()
     run_task = asyncio.create_task(runner.run(task))
 
-    # Wait long enough for StartFrame to fully propagate to the pipeline
-    # sink before we queue the kickoff. With 0.5s the LLMRunFrame was
-    # arriving while pipeline was still _wait_for_pipeline_start; it got
-    # buffered and never replayed. 2s gives Deepgram time to connect too.
     await asyncio.sleep(2.0)
 
-    # Canonical pipecat 0.0.108 kickoff pattern (from
-    # pipecat-examples/twilio-chatbot/inbound/bot.py):
-    kickoff = (
-        f"You're starting an outbound call to a candidate. Greet them warmly "
-        f"in {cfg.language}, introduce yourself as Sarah from Gig-grab (an AI "
-        f"hiring assistant), and ask their name plus the language they're "
-        f"most comfortable speaking. Keep it under 25 words."
-    )
-    context.add_message({"role": "user", "content": kickoff})
-    logger.info(f"[agent] firing LLMRunFrame to greet for session {cfg.session_id}")
-    await task.queue_frames([LLMRunFrame()])
+    # If on_client_connected already fired, kickoff_state["fired"] is True.
+    # Otherwise, push LLMRunFrame DIRECTLY into the user_aggregator —
+    # bypassing PipelineTask::Source / RTVIProcessor / input transport / STT.
+    # This proves whether source-routing is the blocker. push_frame on a
+    # FrameProcessor sends the frame to its own queue / next downstream link.
+    if not kickoff_state["fired"]:
+        kickoff_state["fired"] = True
+        kickoff = (
+            f"You're starting an outbound call to a candidate. Greet them "
+            f"warmly in {cfg.language}, introduce yourself as Sarah from "
+            f"Gig-grab (an AI hiring assistant), and ask their name plus "
+            f"the language they're most comfortable speaking. Under 25 words."
+        )
+        context.add_message({"role": "user", "content": kickoff})
+        logger.info("[agent] post-start direct-push kickoff via user_aggregator")
+        await user_aggregator.push_frame(LLMRunFrame(), FrameDirection.DOWNSTREAM)
+    else:
+        logger.info("[agent] post-start kickoff skipped — on_client_connected already fired")
 
     try:
         await run_task
