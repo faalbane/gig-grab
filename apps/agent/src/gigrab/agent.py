@@ -103,17 +103,12 @@ class TranscriptDbWriter(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        # DIAG: surface frames flowing through this point so we can confirm
-        # whether LLMRunFrame / TTSSpeakFrame / OpenAILLMContextFrame reach
-        # past the input transport + STT.
-        ftype = type(frame).__name__
-        if ftype not in {
-            "AudioRawFrame",
-            "InputAudioRawFrame",
-            "OutputAudioRawFrame",
-            "InterimTranscriptionFrame",
-        }:
-            logger.info(f"[db-writer] saw {ftype} dir={direction.name}")
+        # CRITICAL: FrameProcessor.process_frame does NOT auto-forward frames
+        # downstream. Subclasses must explicitly push. Without this call, this
+        # processor was a black hole — StartFrame, TranscriptionFrame, and
+        # every control frame stopped here, so the user_aggregator never
+        # started and the LLM never fired.
+        await self.push_frame(frame, direction)
 
         # Candidate speech (only finals — interim transcripts churn too much).
         if isinstance(frame, TranscriptionFrame) and frame.text.strip():
@@ -223,17 +218,22 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ),
     )
 
-    # NOTE on the kickoff path: confirmed via diagnostic logs that
-    # task.queue_frames([LLMRunFrame()]) at PipelineTask::Source is silently
-    # dropped — the frame never reaches db_writer (which sits before the
-    # user_aggregator). The on_client_connected handler used to do that
-    # queue and was effectively a no-op. We now drive the kickoff in
-    # run_agent() by calling user_aggregator.push_frame directly, which
-    # injects the frame downstream of the source-routing chain. Keeping
-    # this handler for the lifecycle log only.
+    # Canonical pipecat 0.0.108 kickoff (matches
+    # pipecat-examples/twilio-chatbot/inbound/bot.py): on connect, append a
+    # user-role instruction telling the LLM what to do first, then queue
+    # LLMRunFrame to trigger the LLM. Now works because db_writer no longer
+    # drops frames in transit.
     @transport.event_handler("on_client_connected")
     async def _on_connect(t, client):
         logger.info(f"[agent] on_client_connected fired (session={cfg.session_id})")
+        kickoff = (
+            f"You're starting an outbound call to a candidate. Greet them "
+            f"warmly in {cfg.language}, introduce yourself as Sarah from "
+            f"Gig-grab (an AI hiring assistant), and ask their name plus "
+            f"the language they're most comfortable speaking. Under 25 words."
+        )
+        context.add_message({"role": "user", "content": kickoff})
+        await task.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
     async def _on_disconnect(t, client):
@@ -272,34 +272,10 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
         ),
     )
 
-    task, context, user_aggregator = await build_pipeline(transport, cfg)
+    task, _context, _user_aggregator = await build_pipeline(transport, cfg)
 
     await db.update_session_status(session_id=cfg.session_id, status="in_progress")
 
+    # Kickoff happens inside on_client_connected (registered in build_pipeline).
     runner = PipelineRunner()
-    run_task = asyncio.create_task(runner.run(task))
-
-    # Wait for StartFrame to fully propagate so Deepgram / TTS clients are
-    # initialised before we push the kickoff downstream.
-    await asyncio.sleep(2.0)
-
-    # Add the kickoff "user" message and push LLMRunFrame DIRECTLY into the
-    # user_aggregator. Going through task.queue_frames(...) routes through
-    # PipelineTask::Source → RTVIProcessor → input transport → STT, which
-    # silently drops control frames (confirmed via db-writer diagnostic
-    # logs — only StartFrame ever passed through). push_frame from the
-    # aggregator pushes downstream to LLM directly.
-    kickoff = (
-        f"You're starting an outbound call to a candidate. Greet them "
-        f"warmly in {cfg.language}, introduce yourself as Sarah from "
-        f"Gig-grab (an AI hiring assistant), and ask their name plus "
-        f"the language they're most comfortable speaking. Under 25 words."
-    )
-    context.add_message({"role": "user", "content": kickoff})
-    logger.info("[agent] kickoff via user_aggregator.push_frame(LLMRunFrame, DOWNSTREAM)")
-    await user_aggregator.push_frame(LLMRunFrame(), FrameDirection.DOWNSTREAM)
-
-    try:
-        await run_task
-    except asyncio.CancelledError:
-        raise
+    await runner.run(task)
