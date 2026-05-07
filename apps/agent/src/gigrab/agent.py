@@ -19,6 +19,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     EndFrame,
     Frame,
+    InterimTranscriptionFrame,
     LLMMessagesFrame,
     TranscriptionFrame,
     TextFrame,
@@ -109,8 +110,14 @@ class TranscriptDbWriter(FrameProcessor):
             except Exception as e:  # never break the pipeline on DB errors
                 logger.warning(f"[db] candidate turn write failed: {e}")
 
-        # AI text frames (TextFrame is what the LLM emits before TTS).
-        if isinstance(frame, TextFrame) and direction == FrameDirection.DOWNSTREAM:
+        # AI text frames (TextFrame is what the LLM/TTS emits). Pipecat's
+        # TranscriptionFrame and InterimTranscriptionFrame inherit from
+        # TextFrame — exclude them so we don't capture STT output as "ai".
+        if (
+            isinstance(frame, TextFrame)
+            and not isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame))
+            and direction == FrameDirection.DOWNSTREAM
+        ):
             text = frame.text.strip() if hasattr(frame, "text") else ""
             if text:
                 try:
@@ -189,14 +196,11 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ),
     )
 
-    @transport.event_handler("on_client_connected")
-    async def _on_connect(t, client):
-        await db.update_session_status(session_id=cfg.session_id, status="in_progress")
-        # Have the AI speak the localized greeting via TTS. The LLM takes
-        # over once the candidate responds.
-        ctx = CallContext(language=cfg.language, e164="", audience=cfg.audience)
-        await task.queue_frames([TTSSpeakFrame(text=render_initial_message(ctx))])
-
+    # NOTE: we don't rely on transport.event_handler("on_client_connected")
+    # for greeting — when main.py manually accepts the WS and consumes the
+    # connected/start frames before constructing the transport, that hook
+    # never fires. We queue the greeting directly in run_agent() once the
+    # pipeline is started instead.
     @transport.event_handler("on_client_disconnected")
     async def _on_disconnect(t, client):
         await db.update_session_status(
@@ -234,5 +238,17 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
     )
 
     task = await build_pipeline(transport, cfg)
+
+    # Mark session in_progress now (replaces the no-op on_client_connected
+    # handler — see build_pipeline note).
+    await db.update_session_status(session_id=cfg.session_id, status="in_progress")
+
+    # Queue the localized greeting up front so the AI speaks first; LLM
+    # picks up from the candidate's reply via the user-context aggregator.
+    ctx = CallContext(language=cfg.language, e164="", audience=cfg.audience)
+    greeting = render_initial_message(ctx)
+    if greeting:
+        await task.queue_frames([TTSSpeakFrame(text=greeting)])
+
     runner = PipelineRunner()
     await runner.run(task)
