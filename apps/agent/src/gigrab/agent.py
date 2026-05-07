@@ -264,16 +264,14 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
     runner = PipelineRunner()
     run_task = asyncio.create_task(runner.run(task))
 
-    # Brief settle so StartFrame propagates fully.
-    await asyncio.sleep(0.5)
+    # Wait long enough for StartFrame to fully propagate to the pipeline
+    # sink before we queue the kickoff. With 0.5s the LLMRunFrame was
+    # arriving while pipeline was still _wait_for_pipeline_start; it got
+    # buffered and never replayed. 2s gives Deepgram time to connect too.
+    await asyncio.sleep(2.0)
 
     # Canonical pipecat 0.0.108 kickoff pattern (from
     # pipecat-examples/twilio-chatbot/inbound/bot.py):
-    #   1. Append a user-role instruction telling the LLM what to do first.
-    #   2. Queue LLMRunFrame() — that's the trigger that runs the LLM on
-    #      the current context. OpenAILLMContextFrame just stores context
-    #      without triggering, which is why the previous attempt silently
-    #      did nothing.
     kickoff = (
         f"You're starting an outbound call to a candidate. Greet them warmly "
         f"in {cfg.language}, introduce yourself as Sarah from Gig-grab (an AI "
