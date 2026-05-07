@@ -45,47 +45,27 @@ export async function twilioVoice(
     .where(eq(sessions.id, sessionId));
 
   const wsBase = process.env.AGENT_WS_URL;
-  const placeholder =
-    "Hi! Thanks for calling GigGrab. Our AI recruiter is being set up right now — please try again in a few minutes. Talk to you soon. Goodbye.";
-
-  // Pre-flight the agent: if its /healthz isn't reachable, serve a friendly
-  // placeholder so the candidate doesn't sit in dead air. Once the agent
-  // is reachable from Twilio's network the next call will succeed.
-  if (wsBase) {
-    const httpsBase = wsBase.replace(/^wss?:\/\//, "https://").replace(/\/ws$/, "");
-    const healthOk = await checkAgentHealth(`${httpsBase}/healthz`);
-    if (!healthOk) {
-      console.warn(`[twiml] agent ${httpsBase}/healthz unreachable, serving placeholder`);
-      twiml.say({ voice: "Polly.Joanna" }, placeholder);
-      res.type("text/xml").send(twiml.toString());
-      return;
-    }
-    // Twilio strips query strings from <Stream url="…"/> on the WebSocket
-    // connect URL AND does NOT promote them to customParameters. To pass
-    // session metadata, use <Parameter> child elements — Twilio delivers
-    // them in the start frame's `start.customParameters` field.
-    const connect = twiml.connect();
-    const stream = connect.stream({ url: wsBase });
-    stream.parameter({ name: "sessionId", value: sessionId });
-    stream.parameter({ name: "language", value: session.language ?? "en" });
+  if (!wsBase) {
+    twiml.say(
+      { voice: "Polly.Joanna" },
+      "Hi! Thanks for calling GigGrab. Our AI recruiter isn't configured yet. Please try again in a few minutes. Goodbye.",
+    );
     res.type("text/xml").send(twiml.toString());
     return;
   }
 
-  twiml.say({ voice: "Polly.Joanna" }, placeholder);
+  // No /healthz pre-flight — used to add ~200ms-1.5s of latency before the
+  // candidate heard anything. Agent is stable now; if its WS connect fails
+  // Twilio drops to dead air either way.
+  // Twilio strips query strings from <Stream url="…"/> on the WebSocket
+  // connect URL AND does NOT promote them to customParameters. Use
+  // <Parameter> child elements — Twilio delivers them in the start frame's
+  // `start.customParameters` field.
+  const connect = twiml.connect();
+  const stream = connect.stream({ url: wsBase });
+  stream.parameter({ name: "sessionId", value: sessionId });
+  stream.parameter({ name: "language", value: session.language ?? "en" });
   res.type("text/xml").send(twiml.toString());
-}
-
-async function checkAgentHealth(url: string): Promise<boolean> {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 1500);
-    const r = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(timer);
-    return r.ok;
-  } catch {
-    return false;
-  }
 }
 
 /**

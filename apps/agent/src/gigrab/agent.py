@@ -85,64 +85,78 @@ DEFAULT_CARTESIA_VOICE = "79a125e8-cd45-4c13-8a67-188112f4dd22"
 # ---------------------------------------------------------------------------
 
 
+# Shared per-session monotonic counter so two TranscriptDbWriter instances
+# (one positioned to capture the candidate side, one for the AI side) hand
+# out non-colliding `ord` values.
+_TRANSCRIPT_ORD: dict[str, int] = {}
+_TRANSCRIPT_START_MS: dict[str, int] = {}
+
+
+def _next_ord(session_id: str) -> int:
+    n = _TRANSCRIPT_ORD.get(session_id, 0)
+    _TRANSCRIPT_ORD[session_id] = n + 1
+    return n
+
+
+def _ms_offset(session_id: str) -> int:
+    start = _TRANSCRIPT_START_MS.setdefault(session_id, int(time.time() * 1000))
+    return int(time.time() * 1000) - start
+
+
 class TranscriptDbWriter(FrameProcessor):
-    def __init__(self, session_id: str):
-        super().__init__(name="transcript-db-writer")
+    """One processor per role. Capture exactly one frame type and forward
+    everything downstream. The 'candidate' instance sits between STT and
+    user_aggregator (sees TranscriptionFrame); the 'ai' instance sits
+    between LLM and TTS (sees the LLM's TextFrame chunks).
+    """
+
+    def __init__(self, session_id: str, role: str):
+        super().__init__(name=f"transcript-db-writer-{role}")
+        if role not in ("candidate", "ai"):
+            raise ValueError(f"role must be candidate|ai, got {role!r}")
         self.session_id = session_id
-        self.start_ms = int(time.time() * 1000)
-        self._ord = 0
-
-    def _next_ord(self) -> int:
-        n = self._ord
-        self._ord += 1
-        return n
-
-    def _ms(self) -> int:
-        return int(time.time() * 1000) - self.start_ms
+        self.role = role
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
         # CRITICAL: FrameProcessor.process_frame does NOT auto-forward frames
-        # downstream. Subclasses must explicitly push. Without this call, this
-        # processor was a black hole — StartFrame, TranscriptionFrame, and
-        # every control frame stopped here, so the user_aggregator never
-        # started and the LLM never fired.
+        # downstream. Subclasses must explicitly push.
         await self.push_frame(frame, direction)
 
-        # Candidate speech (only finals — interim transcripts churn too much).
-        if isinstance(frame, TranscriptionFrame) and frame.text.strip():
-            try:
-                await db.write_transcript_turn(
-                    session_id=self.session_id,
-                    ord_=self._next_ord(),
-                    speaker="candidate",
-                    text=frame.text.strip(),
-                    ms_offset=self._ms(),
-                )
-            except Exception as e:  # never break the pipeline on DB errors
-                logger.warning(f"[db] candidate turn write failed: {e}")
-
-        # AI text frames (TextFrame is what the LLM/TTS emits). Pipecat's
-        # TranscriptionFrame and InterimTranscriptionFrame inherit from
-        # TextFrame — exclude them so we don't capture STT output as "ai".
-        if (
-            isinstance(frame, TextFrame)
-            and not isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame))
-            and direction == FrameDirection.DOWNSTREAM
-        ):
-            text = frame.text.strip() if hasattr(frame, "text") else ""
-            if text:
+        if self.role == "candidate":
+            if isinstance(frame, TranscriptionFrame) and frame.text.strip():
                 try:
                     await db.write_transcript_turn(
                         session_id=self.session_id,
-                        ord_=self._next_ord(),
-                        speaker="ai",
-                        text=text,
-                        ms_offset=self._ms(),
+                        ord_=_next_ord(self.session_id),
+                        speaker="candidate",
+                        text=frame.text.strip(),
+                        ms_offset=_ms_offset(self.session_id),
                     )
                 except Exception as e:
-                    logger.warning(f"[db] ai turn write failed: {e}")
+                    logger.warning(f"[db] candidate turn write failed: {e}")
+        else:  # "ai"
+            # LLM emits TextFrame chunks downstream toward TTS. Exclude any
+            # TranscriptionFrame/InterimTranscriptionFrame variants which
+            # inherit from TextFrame.
+            if (
+                isinstance(frame, TextFrame)
+                and not isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame))
+                and direction == FrameDirection.DOWNSTREAM
+            ):
+                text = frame.text.strip() if hasattr(frame, "text") else ""
+                if text:
+                    try:
+                        await db.write_transcript_turn(
+                            session_id=self.session_id,
+                            ord_=_next_ord(self.session_id),
+                            speaker="ai",
+                            text=text,
+                            ms_offset=_ms_offset(self.session_id),
+                        )
+                    except Exception as e:
+                        logger.warning(f"[db] ai turn write failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -194,15 +208,17 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ),
     )
 
-    db_writer = TranscriptDbWriter(cfg.session_id)
+    db_writer_user = TranscriptDbWriter(cfg.session_id, role="candidate")
+    db_writer_ai = TranscriptDbWriter(cfg.session_id, role="ai")
 
     pipeline = Pipeline(
         [
             transport.input(),
             stt,
-            db_writer,
+            db_writer_user,     # captures candidate's TranscriptionFrames
             user_aggregator,
             llm,
+            db_writer_ai,       # captures AI's TextFrame chunks before TTS
             tts,
             transport.output(),
             assistant_aggregator,
