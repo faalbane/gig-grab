@@ -30,9 +30,10 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import (
-    OpenAILLMContext,
-    OpenAILLMContextFrame,
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.twilio import TwilioFrameSerializer
@@ -173,14 +174,18 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         name="cartesia-tts",
     )
 
-    # System prompt only here. The kickoff "user" turn that tells the LLM to
-    # greet the candidate is added in run_agent() via context.add_message()
-    # right before we queue an LLMRunFrame() — that's the canonical pipecat
-    # 0.0.108 pattern for triggering the agent's first turn (matches the
-    # upstream pipecat-examples/twilio-chatbot/inbound bot).
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    context = OpenAILLMContext(messages=messages)
-    context_aggregator = llm.create_context_aggregator(context)
+    # Universal LLMContext + LLMContextAggregatorPair (the non-deprecated
+    # path in pipecat 0.0.108). The deprecated OpenAIUserContextAggregator
+    # silently drops LLMRunFrame, which is why our previous kickoff
+    # attempts produced no LLM call and no Cartesia connect.
+    context = LLMContext()
+    context.add_message({"role": "system", "content": SYSTEM_PROMPT})
+    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(),
+        ),
+    )
 
     db_writer = TranscriptDbWriter(cfg.session_id)
 
@@ -189,11 +194,11 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
             transport.input(),
             stt,
             db_writer,
-            context_aggregator.user(),
+            user_aggregator,
             llm,
             tts,
             transport.output(),
-            context_aggregator.assistant(),
+            assistant_aggregator,
         ]
     )
 
@@ -243,7 +248,8 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
             audio_out_enabled=True,
             add_wav_header=False,
             serializer=serializer,
-            vad_analyzer=SileroVADAnalyzer(),
+            # vad_analyzer moved to LLMUserAggregatorParams in build_pipeline
+            # (pipecat 0.0.108 deprecation).
         ),
     )
 
