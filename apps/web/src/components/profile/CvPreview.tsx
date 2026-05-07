@@ -26,22 +26,32 @@ export function CvPreview({ card, email }: Props) {
         <div className="flex-1 space-y-7 overflow-y-auto px-6 py-7">
           <div>
             <h3 className="text-2xl font-semibold tracking-tight text-gray-900">
-              {card.name}
+              {clean(card.name) || "Add your name"}
             </h3>
             <p className="mt-1 text-sm text-gray-700">
-              {card.title} · {card.yearsExperience} years
+              {[clean(card.title), card.yearsExperience > 0 ? `${card.yearsExperience} years` : null]
+                .filter(Boolean)
+                .join(" · ") || "Tell us your trade"}
             </p>
             <p className="text-sm text-gray-500">
-              {card.location}
-              {email ? ` · ${email}` : ""}
+              {[clean(card.location), email].filter(Boolean).join(" · ") || ""}
             </p>
           </div>
 
-          <Section heading="Profile">
-            <p className="text-sm leading-relaxed text-gray-800">
-              {card.summary}
-            </p>
-          </Section>
+          {clean(card.summary) ? (
+            <Section heading="Profile">
+              <p className="text-sm leading-relaxed text-gray-800">
+                {clean(card.summary)}
+              </p>
+            </Section>
+          ) : (
+            <Section heading="Profile">
+              <p className="text-sm italic text-gray-500">
+                Your profile summary will appear here after we capture more
+                detail. Tap &ldquo;Call again&rdquo; below to keep adding to it.
+              </p>
+            </Section>
+          )}
 
           {card.ticketsAndCards.length > 0 && (
             <Section heading="Tickets & cards">
@@ -78,6 +88,16 @@ export function CvPreview({ card, email }: Props) {
       )}
     </section>
   );
+}
+
+// Drop legacy "<UNKNOWN>" sentinels and trim whitespace. The newer extraction
+// prompt returns "" for unset fields, but old rows from before the prompt
+// update may still have "<UNKNOWN>".
+function clean(s: string | undefined | null): string {
+  if (!s) return "";
+  const t = s.trim();
+  if (!t || t === "<UNKNOWN>" || t.toLowerCase() === "unknown") return "";
+  return t;
 }
 
 function Section({

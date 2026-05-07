@@ -6,6 +6,7 @@ import { count } from "drizzle-orm";
 import { intakeStart } from "./intake";
 import { twilioVoice, twilioStatus } from "./twilio-webhook";
 import { sessionProfileGet } from "./profile";
+import { sessionStatusGet, sessionTurnsGet } from "./sessions";
 import { authLink } from "./auth";
 
 initializeApp();
@@ -87,6 +88,20 @@ export const api = onRequest(
       );
       if (profileMatch && method === "GET") {
         await sessionProfileGet(req, res, profileMatch[1]);
+        return;
+      }
+      const statusMatchSession = path.match(
+        /^\/sessions\/([0-9a-f-]{36})\/status$/,
+      );
+      if (statusMatchSession && method === "GET") {
+        await sessionStatusGet(req, res, statusMatchSession[1]);
+        return;
+      }
+      const turnsMatch = path.match(
+        /^\/sessions\/([0-9a-f-]{36})\/turns$/,
+      );
+      if (turnsMatch && method === "GET") {
+        await sessionTurnsGet(req, res, turnsMatch[1]);
         return;
       }
       if (method === "POST" && path === "/auth/link") {
