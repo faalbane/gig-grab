@@ -212,14 +212,16 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
     # echoes it back on every outbound media frame so Twilio routes audio to
     # the right call leg. cfg.session_id is OUR DB session UUID — separate concern.
     #
-    # auto_hang_up=False because Pipecat 0.0.108 makes that the toggle for
-    # "the agent calls Twilio's REST API to terminate the call when the
-    # pipeline ends" — which requires the Twilio account_sid/auth_token to
-    # be plumbed in. We don't need it: the candidate hangs up their phone,
+    # In Pipecat 0.0.108 auto_hang_up lives on InputParams (not a direct
+    # kwarg). We disable it so the serializer doesn't try to call Twilio's
+    # REST API when the pipeline ends — the candidate hangs up their phone,
     # Twilio closes the WS, and on_client_disconnected marks the session
-    # completed in DB. If we ever want the AI to forcibly end the call
-    # (e.g. abuse / off-topic), pass account_sid + auth_token + call_sid here.
-    serializer = TwilioFrameSerializer(stream_sid=stream_sid, auto_hang_up=False)
+    # completed in DB. To enable agent-initiated hangup later, pass
+    # call_sid + account_sid + auth_token + params with auto_hang_up=True.
+    serializer = TwilioFrameSerializer(
+        stream_sid=stream_sid,
+        params=TwilioFrameSerializer.InputParams(auto_hang_up=False),
+    )
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
         params=FastAPIWebsocketParams(
