@@ -22,6 +22,7 @@ from pipecat.frames.frames import (
     Frame,
     InterimTranscriptionFrame,
     LLMMessagesFrame,
+    LLMRunFrame,
     TranscriptionFrame,
     TextFrame,
     TTSSpeakFrame,
@@ -172,20 +173,12 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         name="cartesia-tts",
     )
 
-    # System prompt + a kickoff "user" turn that tells the LLM to greet the
-    # candidate. Without a user message in the context, Groq won't generate
-    # anything when we push the context frame at pipeline start. The kickoff
-    # is invisible to the candidate and won't be echoed back to TTS because
-    # only assistant responses go that way.
-    kickoff_user = (
-        "(Call just connected. Greet the candidate warmly in "
-        f"{cfg.language} and ask their name and which language "
-        "they're most comfortable speaking. Keep it under 25 words.)"
-    )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": kickoff_user},
-    ]
+    # System prompt only here. The kickoff "user" turn that tells the LLM to
+    # greet the candidate is added in run_agent() via context.add_message()
+    # right before we queue an LLMRunFrame() — that's the canonical pipecat
+    # 0.0.108 pattern for triggering the agent's first turn (matches the
+    # upstream pipecat-examples/twilio-chatbot/inbound bot).
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     context = OpenAILLMContext(messages=messages)
     context_aggregator = llm.create_context_aggregator(context)
 
@@ -260,20 +253,30 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
     # handler — see build_pipeline note).
     await db.update_session_status(session_id=cfg.session_id, status="in_progress")
 
-    # Run the pipeline in the background so we can inject the LLM kickoff
-    # AFTER the pipeline + transport + Cartesia/Deepgram clients have
-    # initialized. TTSSpeakFrame at PipelineTask::Source gets swallowed
-    # before reaching TTS, so we drive the agent's first turn through the
-    # canonical path: push an OpenAILLMContextFrame, LLM generates a
-    # greeting from the kickoff context, TTS speaks it.
+    # Run the pipeline in the background so we can fire the kickoff AFTER
+    # StartFrame has propagated and Deepgram/Cartesia clients are wired.
     runner = PipelineRunner()
     run_task = asyncio.create_task(runner.run(task))
 
-    # Brief settle so StartFrame propagates and TTS service is ready.
+    # Brief settle so StartFrame propagates fully.
     await asyncio.sleep(0.5)
 
-    logger.info(f"[agent] kicking off LLM-driven greeting for session {cfg.session_id}")
-    await task.queue_frames([OpenAILLMContextFrame(context)])
+    # Canonical pipecat 0.0.108 kickoff pattern (from
+    # pipecat-examples/twilio-chatbot/inbound/bot.py):
+    #   1. Append a user-role instruction telling the LLM what to do first.
+    #   2. Queue LLMRunFrame() — that's the trigger that runs the LLM on
+    #      the current context. OpenAILLMContextFrame just stores context
+    #      without triggering, which is why the previous attempt silently
+    #      did nothing.
+    kickoff = (
+        f"You're starting an outbound call to a candidate. Greet them warmly "
+        f"in {cfg.language}, introduce yourself as Sarah from Gig-grab (an AI "
+        f"hiring assistant), and ask their name plus the language they're "
+        f"most comfortable speaking. Keep it under 25 words."
+    )
+    context.add_message({"role": "user", "content": kickoff})
+    logger.info(f"[agent] firing LLMRunFrame to greet for session {cfg.session_id}")
+    await task.queue_frames([LLMRunFrame()])
 
     try:
         await run_task
