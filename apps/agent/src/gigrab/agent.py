@@ -29,7 +29,10 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.openai_llm_context import (
+    OpenAILLMContext,
+    OpenAILLMContextFrame,
+)
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.cartesia.tts import CartesiaTTSService
@@ -169,7 +172,20 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         name="cartesia-tts",
     )
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # System prompt + a kickoff "user" turn that tells the LLM to greet the
+    # candidate. Without a user message in the context, Groq won't generate
+    # anything when we push the context frame at pipeline start. The kickoff
+    # is invisible to the candidate and won't be echoed back to TTS because
+    # only assistant responses go that way.
+    kickoff_user = (
+        "(Call just connected. Greet the candidate warmly in "
+        f"{cfg.language} and ask their name and which language "
+        "they're most comfortable speaking. Keep it under 25 words.)"
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": kickoff_user},
+    ]
     context = OpenAILLMContext(messages=messages)
     context_aggregator = llm.create_context_aggregator(context)
 
@@ -209,7 +225,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         )
         await task.queue_frame(EndFrame())
 
-    return task
+    return task, context
 
 
 async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
@@ -238,27 +254,26 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
         ),
     )
 
-    task = await build_pipeline(transport, cfg)
+    task, context = await build_pipeline(transport, cfg)
 
     # Mark session in_progress now (replaces the no-op on_client_connected
     # handler — see build_pipeline note).
     await db.update_session_status(session_id=cfg.session_id, status="in_progress")
 
-    # Run the pipeline in the background so we can inject the greeting
+    # Run the pipeline in the background so we can inject the LLM kickoff
     # AFTER the pipeline + transport + Cartesia/Deepgram clients have
-    # initialized. Queueing TTSSpeakFrame before runner.run leaves it
-    # buffered and Cartesia's WS never gets a chance to connect.
+    # initialized. TTSSpeakFrame at PipelineTask::Source gets swallowed
+    # before reaching TTS, so we drive the agent's first turn through the
+    # canonical path: push an OpenAILLMContextFrame, LLM generates a
+    # greeting from the kickoff context, TTS speaks it.
     runner = PipelineRunner()
     run_task = asyncio.create_task(runner.run(task))
 
     # Brief settle so StartFrame propagates and TTS service is ready.
     await asyncio.sleep(0.5)
 
-    ctx = CallContext(language=cfg.language, e164="", audience=cfg.audience)
-    greeting = render_initial_message(ctx)
-    if greeting:
-        logger.info(f"[agent] queuing greeting ({len(greeting)} chars) for session {cfg.session_id}")
-        await task.queue_frames([TTSSpeakFrame(text=greeting)])
+    logger.info(f"[agent] kicking off LLM-driven greeting for session {cfg.session_id}")
+    await task.queue_frames([OpenAILLMContextFrame(context)])
 
     try:
         await run_task
