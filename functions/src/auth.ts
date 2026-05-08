@@ -46,7 +46,28 @@ export async function authLink(req: Request, res: Response): Promise<void> {
   const candidateId =
     (req.body?.candidateId as string | undefined) ?? null;
 
+  const provider = decoded.firebase?.sign_in_provider ?? "?";
+  console.log(
+    `[auth/link] decoded uid=${uid} provider=${provider} phone=${phone} email=${email} emailVerified=${emailVerified} candidateId=${candidateId}`,
+  );
+
   let row;
+
+  // 0) Already-claimed shortcut: if a candidate row already has this uid,
+  // return it. This recovers cleanly when path 2 / 3 below run on a row
+  // that's already linked, AND it's the path /api/account/me will agree
+  // with on subsequent reads.
+  {
+    const [byUid] = await db()
+      .select()
+      .from(candidates)
+      .where(eq(candidates.firebaseUid, uid))
+      .limit(1);
+    if (byUid) {
+      row = byUid;
+      console.log(`[auth/link] path 0 (uid match) → ${row.id}`);
+    }
+  }
 
   // 1) Explicit candidateId — must not be claimed by a different uid.
   if (candidateId) {
@@ -81,6 +102,7 @@ export async function authLink(req: Request, res: Response): Promise<void> {
       })
       .where(eq(candidates.phone, phone))
       .returning();
+    console.log(`[auth/link] path 2 (phone match) → ${row?.id ?? "no match"}`);
   }
 
   // 3) Verified email match — only if no phone path landed.
@@ -111,6 +133,7 @@ export async function authLink(req: Request, res: Response): Promise<void> {
         language: "en",
       })
       .returning();
+    console.log(`[auth/link] fallback created → ${row.id} phone=${row.phone}`);
   }
 
   res.json({
