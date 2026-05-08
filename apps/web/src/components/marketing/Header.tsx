@@ -22,7 +22,7 @@ export function Header() {
         </nav>
         <div className="flex items-center gap-3">
           <Link
-            href="/login"
+            href="/auth"
             className="hidden text-sm text-gray-700 hover:text-gray-900 sm:inline-flex"
           >
             ↪ Log in
