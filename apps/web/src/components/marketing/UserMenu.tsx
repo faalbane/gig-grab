@@ -6,6 +6,7 @@ import {
   signOutCurrentUser,
   fetchWithAuth,
 } from "@/lib/firebase";
+import { Avatar } from "@/components/common/Avatar";
 
 type Me = {
   candidate: {
@@ -63,33 +64,18 @@ export function UserMenu() {
     );
   }
 
-  const initials = (user.displayName || user.email || user.phoneNumber || "?")
-    .replace(/[^A-Za-z0-9 ]/g, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((s) => s[0]?.toUpperCase() ?? "")
-    .join("");
   const phoneMissing = me ? !me.candidate.phone : false;
+  const seed = user.uid || user.email || user.phoneNumber || "guest";
 
   return (
     <div className="relative" ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="relative grid h-9 w-9 place-items-center rounded-full bg-emerald-600 text-sm font-medium text-white hover:bg-emerald-700"
+        className="relative h-9 w-9 overflow-visible rounded-full hover:opacity-90"
         aria-label="Account menu"
       >
-        {user.photoURL ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={user.photoURL}
-            alt=""
-            className="h-9 w-9 rounded-full object-cover"
-          />
-        ) : (
-          initials || "👤"
-        )}
+        <Avatar seed={seed} photoUrl={user.photoURL} size={36} />
         {phoneMissing && (
           <span
             title="Phone not set up"

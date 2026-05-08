@@ -7,6 +7,7 @@ import {
   signOutCurrentUser,
 } from "@/lib/firebase";
 import { PhoneE164Input } from "@/components/common/PhoneE164Input";
+import { Avatar } from "@/components/common/Avatar";
 
 type Me = {
   candidate: {
@@ -120,8 +121,20 @@ export function SettingsCard() {
       )}
 
       <section className="rounded-2xl border border-gray-200 bg-white p-6">
-        <h2 className="text-sm font-semibold text-gray-900">Account</h2>
-        <dl className="mt-3 grid gap-2 text-sm">
+        <div className="flex items-center gap-4">
+          <Avatar
+            seed={user.uid || user.email || user.phoneNumber || "guest"}
+            photoUrl={user.photoURL}
+            size={64}
+          />
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Account</h2>
+            <p className="text-xs text-gray-500">
+              {user.displayName ?? user.email ?? user.phoneNumber ?? "—"}
+            </p>
+          </div>
+        </div>
+        <dl className="mt-4 grid gap-2 text-sm">
           <Row k="Signed in as" v={user.displayName ?? user.email ?? user.phoneNumber ?? "—"} />
           <Row k="Email" v={user.email ?? "—"} />
         </dl>
