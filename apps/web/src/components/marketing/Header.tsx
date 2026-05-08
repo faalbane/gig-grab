@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo } from "./Logo";
+import { UserMenu } from "./UserMenu";
 
 export function Header() {
   return (
@@ -21,18 +22,7 @@ export function Header() {
           </Link>
         </nav>
         <div className="flex items-center gap-3">
-          <Link
-            href="/auth"
-            className="hidden text-sm text-gray-700 hover:text-gray-900 sm:inline-flex"
-          >
-            ↪ Log in
-          </Link>
-          <Link
-            href="/start"
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
-          >
-            Get started
-          </Link>
+          <UserMenu />
         </div>
       </div>
     </header>

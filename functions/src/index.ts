@@ -8,6 +8,11 @@ import { twilioVoice, twilioStatus } from "./twilio-webhook";
 import { sessionProfileGet } from "./profile";
 import { sessionStatusGet, sessionTurnsGet } from "./sessions";
 import { authLink } from "./auth";
+import {
+  accountMe,
+  accountPhoneStart,
+  accountPhoneConfirm,
+} from "./account";
 
 initializeApp();
 
@@ -16,6 +21,7 @@ const SECRETS = [
   "TWILIO_ACCOUNT_SID",
   "TWILIO_AUTH_TOKEN",
   "TWILIO_PHONE_NUMBER",
+  "TWILIO_VERIFY_SERVICE_SID",
   "ANTHROPIC_API_KEY",
   "SESSION_SECRET",
 ];
@@ -106,6 +112,18 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/auth/link") {
         await authLink(req, res);
+        return;
+      }
+      if (method === "GET" && path === "/account/me") {
+        await accountMe(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/account/phone/start") {
+        await accountPhoneStart(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/account/phone/confirm") {
+        await accountPhoneConfirm(req, res);
         return;
       }
       res.status(404).json({ error: "not found", path });

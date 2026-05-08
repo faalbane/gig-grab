@@ -5,13 +5,17 @@ import {
   RecaptchaVerifier,
   getAuth,
   isSignInWithEmailLink,
+  onAuthStateChanged,
   sendSignInLinkToEmail,
   signInWithEmailLink,
   signInWithPhoneNumber,
   signInWithPopup,
+  signOut,
   type Auth,
   type ConfirmationResult,
+  type User,
 } from "firebase/auth";
+import { useEffect, useState } from "react";
 
 const config = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
@@ -99,6 +103,45 @@ export async function confirmPhoneCode(
   code: string,
 ) {
   return confirmation.confirm(code);
+}
+
+/** Subscribe to Firebase Auth state. Returns null while pending, false when signed out, User when in. */
+export function useAuthUser(): User | null | false {
+  const [user, setUser] = useState<User | null | false>(null);
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth(), (u) => setUser(u ?? false));
+    return () => unsub();
+  }, []);
+  return user;
+}
+
+export async function signOutCurrentUser(): Promise<void> {
+  await signOut(auth());
+}
+
+/** Authenticated fetch — adds Bearer ID token + parses JSON. */
+export async function fetchWithAuth<T = unknown>(
+  input: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const u = auth().currentUser;
+  if (!u) throw new Error("not signed in");
+  const idToken = await u.getIdToken();
+  const res = await fetch(input, {
+    ...init,
+    headers: {
+      ...(init.headers ?? {}),
+      authorization: `Bearer ${idToken}`,
+      "content-type": "application/json",
+    },
+  });
+  const json = (await res.json()) as T;
+  if (!res.ok) {
+    const msg =
+      (json as { error?: string }).error ?? `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return json;
 }
 
 export async function postAuthLink(idToken: string, candidateId?: string) {
