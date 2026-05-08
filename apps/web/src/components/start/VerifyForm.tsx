@@ -1,47 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { LanguagePicker } from "./LanguagePicker";
 import { LANGUAGES, findLanguage, type LanguageEntry } from "@/lib/languages";
-
-const COUNTRY_CODES = [
-  { code: "+1", flag: "🇺🇸", country: "US" },
-  { code: "+44", flag: "🇬🇧", country: "UK" },
-  { code: "+1", flag: "🇨🇦", country: "Canada" },
-  { code: "+353", flag: "🇮🇪", country: "Ireland" },
-  { code: "+61", flag: "🇦🇺", country: "Australia" },
-  { code: "+34", flag: "🇪🇸", country: "Spain" },
-  { code: "+33", flag: "🇫🇷", country: "France" },
-  { code: "+49", flag: "🇩🇪", country: "Germany" },
-  { code: "+39", flag: "🇮🇹", country: "Italy" },
-  { code: "+351", flag: "🇵🇹", country: "Portugal" },
-  { code: "+91", flag: "🇮🇳", country: "India" },
-  { code: "+63", flag: "🇵🇭", country: "Philippines" },
-  { code: "+52", flag: "🇲🇽", country: "Mexico" },
-  { code: "+48", flag: "🇵🇱", country: "Poland" },
-  { code: "+40", flag: "🇷🇴", country: "Romania" },
-  { code: "+380", flag: "🇺🇦", country: "Ukraine" },
-];
+import { PhoneE164Input } from "@/components/common/PhoneE164Input";
 
 type Props = { audience: "worker" | "employer" };
 
 export function VerifyForm({ audience }: Props) {
   const [language, setLanguage] = useState<LanguageEntry>(findLanguage("en")!);
-  const [countryIndex, setCountryIndex] = useState(0); // 0 = US (+1)
-  const country = COUNTRY_CODES[countryIndex];
-  const countryCode = country.code;
-  const [phone, setPhone] = useState("");
+  const [e164, setE164] = useState("");
+  const [phoneValid, setPhoneValid] = useState(false);
+  const onPhoneChange = useCallback((v: string, ok: boolean) => {
+    setE164(v);
+    setPhoneValid(ok);
+  }, []);
   const [consent, setConsent] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const valid = phone.replace(/\D/g, "").length >= 7 && consent;
+  const valid = phoneValid && consent;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const e164 = `${countryCode}${phone.replace(/\D/g, "")}`;
     try {
       const res = await fetch("/api/intake/start", {
         method: "POST",
@@ -116,29 +99,8 @@ export function VerifyForm({ audience }: Props) {
         <label className="text-xs font-medium text-gray-700">
           Mobile number
         </label>
-        <div className="mt-1.5 flex gap-2">
-          <select
-            aria-label="Country code"
-            value={countryIndex}
-            onChange={(e) => setCountryIndex(Number(e.target.value))}
-            className="rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          >
-            {COUNTRY_CODES.map((c, i) => (
-              <option key={`${c.country}-${i}`} value={i}>
-                {c.flag} {c.code} {c.country}
-              </option>
-            ))}
-          </select>
-          <input
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel-national"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="(555) 123-4567"
-            className="flex-1 rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-            required
-          />
+        <div className="mt-1.5">
+          <PhoneE164Input onChange={onPhoneChange} showPreview={false} />
         </div>
       </div>
 

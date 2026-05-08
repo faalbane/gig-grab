@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useCallback, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ConfirmationResult } from "firebase/auth";
 import {
@@ -11,6 +11,7 @@ import {
   confirmPhoneCode,
   postAuthLink,
 } from "@/lib/firebase";
+import { PhoneE164Input } from "@/components/common/PhoneE164Input";
 
 type Audience = "worker" | "employer";
 
@@ -19,7 +20,12 @@ function AuthCardInner() {
   const audience = (params.get("audience") as Audience) ?? "worker";
   const candidateId = params.get("candidateId") ?? undefined;
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState(params.get("phone") ?? "");
+  const [e164, setE164] = useState("");
+  const [phoneValid, setPhoneValid] = useState(false);
+  const onPhoneChange = useCallback((v: string, ok: boolean) => {
+    setE164(v);
+    setPhoneValid(ok);
+  }, []);
   const [code, setCode] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -71,15 +77,14 @@ function AuthCardInner() {
 
   async function phoneSendCode(e: React.FormEvent) {
     e.preventDefault();
-    const cleaned = phone.replace(/[^\d+]/g, "");
-    if (!/^\+[1-9]\d{6,14}$/.test(cleaned)) {
-      setError("Phone must be in E.164 format, e.g. +14155551234.");
+    if (!phoneValid) {
+      setError("That doesn't look like a valid phone number.");
       return;
     }
     setBusy("phone");
     setError(null);
     try {
-      const conf = await startPhoneSignIn(cleaned);
+      const conf = await startPhoneSignIn(e164);
       setConfirmation(conf);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't send the code.");
@@ -170,7 +175,7 @@ function AuthCardInner() {
           {confirmation ? (
             <form onSubmit={phoneVerify} className="space-y-3">
               <p className="text-xs text-gray-600">
-                We sent a code to <strong>{phone}</strong>. Enter it below.
+                We sent a code to <strong>{e164}</strong>. Enter it below.
               </p>
               <input
                 type="text"
@@ -201,17 +206,10 @@ function AuthCardInner() {
             </form>
           ) : (
             <form onSubmit={phoneSendCode} className="space-y-3">
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1 415 555 1234"
-                required
-                className="w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-              />
+              <PhoneE164Input onChange={onPhoneChange} showPreview={false} />
               <button
                 type="submit"
-                disabled={busy !== null}
+                disabled={busy !== null || !phoneValid}
                 className="w-full rounded-md bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:bg-gray-300"
               >
                 {busy === "phone" ? "Sending code…" : "Text me a code →"}
