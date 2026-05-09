@@ -12,6 +12,7 @@ import {
 } from "./twilio-webhook";
 import { sessionProfileGet } from "./profile";
 import { sessionStatusGet, sessionTurnsGet } from "./sessions";
+import { sessionCvPdf } from "./cv-pdf";
 import { authLink } from "./auth";
 import {
   accountMe,
@@ -122,6 +123,13 @@ export const api = onRequest(
       );
       if (turnsMatch && method === "GET") {
         await sessionTurnsGet(req, res, turnsMatch[1]);
+        return;
+      }
+      const cvPdfMatch = path.match(
+        /^\/sessions\/([0-9a-f-]{36})\/cv\.pdf$/,
+      );
+      if (cvPdfMatch && method === "GET") {
+        await sessionCvPdf(req, res, cvPdfMatch[1]);
         return;
       }
       if (method === "POST" && path === "/auth/link") {

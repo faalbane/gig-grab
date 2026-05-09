@@ -99,7 +99,12 @@ function ProfileInner() {
 
       <div className="grid gap-6 lg:grid-cols-2 lg:gap-8" style={{ minHeight: 600 }}>
         <ConversationPane turns={data?.transcript ?? []} />
-        <CvPreview card={data?.profile ?? null} email={data?.candidate.email} />
+        <CvPreview
+          card={data?.profile ?? null}
+          email={data?.candidate.email}
+          sessionId={sessionId ?? undefined}
+          token={token}
+        />
       </div>
 
       <div className="mt-6 flex flex-wrap gap-3">

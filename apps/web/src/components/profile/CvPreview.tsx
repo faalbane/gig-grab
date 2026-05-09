@@ -3,16 +3,36 @@ import type { ProfileCard } from "@/lib/types";
 type Props = {
   card: ProfileCard | null;
   email?: string;
+  /** Provided when we're inside a session-token-gated profile view. */
+  sessionId?: string;
+  token?: string;
 };
 
-export function CvPreview({ card, email }: Props) {
+export function CvPreview({ card, email, sessionId, token }: Props) {
+  const pdfHref =
+    sessionId && token && card
+      ? `/api/sessions/${sessionId}/cv.pdf?token=${encodeURIComponent(token)}`
+      : null;
+
   return (
     <section className="flex h-full flex-col rounded-2xl border border-gray-200 bg-white">
       <header className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
         <h2 className="text-sm font-semibold text-gray-900">CV preview</h2>
-        <button className="text-xs text-gray-500 hover:text-gray-700">
-          ↓ PDF
-        </button>
+        {pdfHref ? (
+          <a
+            href={pdfHref}
+            className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+          >
+            ↓ PDF
+          </a>
+        ) : (
+          <span
+            className="cursor-not-allowed text-xs text-gray-400"
+            title="Available once your profile has been generated."
+          >
+            ↓ PDF
+          </span>
+        )}
       </header>
 
       {!card ? (
