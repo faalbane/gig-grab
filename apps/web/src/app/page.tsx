@@ -17,6 +17,30 @@ export default function WorkerLanding() {
             <AudienceToggle active="worker" />
           </div>
 
+          {process.env.NEXT_PUBLIC_HOTLINE && (
+            <a
+              href={`tel:${process.env.NEXT_PUBLIC_HOTLINE.replace(/[^+\d]/g, "")}`}
+              className="group mx-auto mt-4 block max-w-6xl px-6"
+            >
+              <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-5 py-4 text-white shadow-sm transition-transform hover:scale-[1.01] sm:flex-row sm:gap-5 sm:py-3">
+                <span className="grid h-12 w-12 place-items-center rounded-full bg-white/15 text-2xl">
+                  📞
+                </span>
+                <div className="flex-1 text-center sm:text-left">
+                  <p className="text-xs uppercase tracking-wider text-emerald-100">
+                    Hotline · onboard in 2 minutes
+                  </p>
+                  <p className="text-2xl font-bold tracking-tight sm:text-3xl">
+                    {process.env.NEXT_PUBLIC_HOTLINE}
+                  </p>
+                </div>
+                <span className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-emerald-700 group-hover:bg-emerald-50">
+                  Call now →
+                </span>
+              </div>
+            </a>
+          )}
+
           <section className="mx-auto grid max-w-6xl gap-6 px-6 py-4 sm:py-6 lg:grid-cols-2 lg:items-center lg:gap-16 lg:py-12">
             <div>
               <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
@@ -63,18 +87,6 @@ export default function WorkerLanding() {
               <p className="mt-2 text-sm text-gray-500">
                 ✓ Verified employers · 12k+ live jobs
               </p>
-
-              {process.env.NEXT_PUBLIC_HOTLINE && (
-                <p className="mt-3 text-sm text-gray-700">
-                  Or just call our hotline:{" "}
-                  <a
-                    href={`tel:${process.env.NEXT_PUBLIC_HOTLINE.replace(/[^+\d]/g, "")}`}
-                    className="font-semibold text-emerald-700 hover:text-emerald-800"
-                  >
-                    {process.env.NEXT_PUBLIC_HOTLINE}
-                  </a>
-                </p>
-              )}
             </div>
 
             <div className="lg:pl-8">
