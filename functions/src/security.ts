@@ -66,12 +66,31 @@ export function verifyTwilioSignature(req: Request): boolean {
   const signature = (req.header("X-Twilio-Signature") ?? "") as string;
   if (!signature) return false;
 
-  const fullUrl =
-    (process.env.PUBLIC_API_URL ??
-      "https://api-353215144615.europe-west2.run.app") +
-    req.path;
   const params = (req.body as Record<string, string>) ?? {};
-  return twilio.validateRequest(authToken, signature, fullUrl, params);
+
+  // Twilio signs the URL it was configured to call. For us, that's two
+  // forms because we hit the API two ways:
+  //  • Outbound calls/SMS — code passes the api Cloud Run URL directly:
+  //    https://api-353215144615.europe-west2.run.app/twilio/...
+  //  • Inbound hotline — Twilio number config points at the Firebase
+  //    Hosting URL which then rewrites to Cloud Run:
+  //    https://gig-grab.web.app/api/twilio/...
+  // After the Hosting rewrite Cloud Run sees req.path without the /api
+  // prefix, so we have to reconstruct both candidates and accept either.
+  const path = req.path; // e.g. "/twilio/inbound" or "/twilio/status/<sid>"
+  const apiBase =
+    process.env.PUBLIC_API_URL ??
+    "https://api-353215144615.europe-west2.run.app";
+  const webBase = process.env.PUBLIC_WEB_URL ?? "https://gig-grab.web.app";
+
+  const candidates = [
+    `${apiBase}${path}`, // Cloud Run direct URL
+    `${webBase}/api${path}`, // Firebase Hosting public URL
+  ];
+
+  return candidates.some((url) =>
+    twilio.validateRequest(authToken, signature, url, params),
+  );
 }
 
 // ---------------------------------------------------------------------------
