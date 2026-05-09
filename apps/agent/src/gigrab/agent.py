@@ -21,6 +21,8 @@ from pipecat.frames.frames import (
     EndFrame,
     Frame,
     InterimTranscriptionFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     LLMMessagesFrame,
     LLMRunFrame,
     TranscriptionFrame,
@@ -106,8 +108,10 @@ def _ms_offset(session_id: str) -> int:
 class TranscriptDbWriter(FrameProcessor):
     """One processor per role. Capture exactly one frame type and forward
     everything downstream. The 'candidate' instance sits between STT and
-    user_aggregator (sees TranscriptionFrame); the 'ai' instance sits
-    between LLM and TTS (sees the LLM's TextFrame chunks).
+    user_aggregator (sees TranscriptionFrame). The 'ai' instance sits
+    between LLM and TTS — it BUFFERS streaming TextFrame chunks between
+    LLMFullResponseStart/EndFrame and writes one row per assistant turn so
+    the transcript reads as natural sentences instead of per-token bubbles.
     """
 
     def __init__(self, session_id: str, role: str):
@@ -116,6 +120,8 @@ class TranscriptDbWriter(FrameProcessor):
             raise ValueError(f"role must be candidate|ai, got {role!r}")
         self.session_id = session_id
         self.role = role
+        self._ai_buffer: list[str] = []
+        self._buffering = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -136,27 +142,65 @@ class TranscriptDbWriter(FrameProcessor):
                     )
                 except Exception as e:
                     logger.warning(f"[db] candidate turn write failed: {e}")
-        else:  # "ai"
-            # LLM emits TextFrame chunks downstream toward TTS. Exclude any
-            # TranscriptionFrame/InterimTranscriptionFrame variants which
-            # inherit from TextFrame.
-            if (
-                isinstance(frame, TextFrame)
-                and not isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame))
-                and direction == FrameDirection.DOWNSTREAM
-            ):
-                text = frame.text.strip() if hasattr(frame, "text") else ""
-                if text:
-                    try:
-                        await db.write_transcript_turn(
-                            session_id=self.session_id,
-                            ord_=_next_ord(self.session_id),
-                            speaker="ai",
-                            text=text,
-                            ms_offset=_ms_offset(self.session_id),
-                        )
-                    except Exception as e:
-                        logger.warning(f"[db] ai turn write failed: {e}")
+            return
+
+        # role == "ai"
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self._ai_buffer = []
+            self._buffering = True
+            return
+        if isinstance(frame, LLMFullResponseEndFrame):
+            self._buffering = False
+            text = _clean_ai_text("".join(self._ai_buffer))
+            self._ai_buffer = []
+            if text:
+                try:
+                    await db.write_transcript_turn(
+                        session_id=self.session_id,
+                        ord_=_next_ord(self.session_id),
+                        speaker="ai",
+                        text=text,
+                        ms_offset=_ms_offset(self.session_id),
+                    )
+                except Exception as e:
+                    logger.warning(f"[db] ai turn write failed: {e}")
+            return
+        # Buffer LLM streaming token chunks. Exclude transcription subclasses
+        # (which inherit from TextFrame) so STT echoes never land here.
+        if (
+            self._buffering
+            and isinstance(frame, TextFrame)
+            and not isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame))
+            and direction == FrameDirection.DOWNSTREAM
+        ):
+            chunk = getattr(frame, "text", "")
+            if chunk:
+                self._ai_buffer.append(chunk)
+
+
+def _clean_ai_text(s: str) -> str:
+    """Tighten LLM streaming output for human display.
+
+    Streaming concatenation can leave things like 'I 'm' or 'Hi there ,'.
+    LLM also wraps direct speech in quotes per system-prompt examples; strip
+    those wrapping pairs so transcript bubbles read clean.
+    """
+    if not s:
+        return ""
+    t = s.strip()
+    # Drop a single layer of wrapping ASCII or smart quotes.
+    pairs = [('"', '"'), ("“", "”"), ("'", "'"), ("‘", "’")]
+    for o, c in pairs:
+        if len(t) >= 2 and t.startswith(o) and t.endswith(c):
+            t = t[1:-1].strip()
+            break
+    # Collapse any double spaces and squeeze spaces around common punctuation.
+    import re
+
+    t = re.sub(r"\s+", " ", t)
+    t = re.sub(r"\s+([,.;:!?])", r"\1", t)
+    t = re.sub(r"\s+'(\w)", r"'\1", t)  # "I 'm" → "I'm"
+    return t.strip()
 
 
 # ---------------------------------------------------------------------------

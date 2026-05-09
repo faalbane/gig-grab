@@ -39,7 +39,7 @@ export function ConversationPane({ turns, onSend }: Props) {
             Your conversation will appear here once the call ends.
           </p>
         )}
-        {turns.map((t) => (
+        {coalesce(turns).map((t) => (
           <TurnBubble key={t.id} turn={t} />
         ))}
       </div>
@@ -66,6 +66,38 @@ export function ConversationPane({ turns, onSend }: Props) {
       )}
     </section>
   );
+}
+
+// Combine consecutive same-speaker rows into one bubble and tighten the
+// punctuation spacing left over by per-token LLM streaming. Handles legacy
+// rows written before the agent started buffering full assistant turns.
+function coalesce(turns: TranscriptTurn[]): TranscriptTurn[] {
+  const out: TranscriptTurn[] = [];
+  for (const t of turns) {
+    const last = out[out.length - 1];
+    if (last && last.speaker === t.speaker) {
+      out[out.length - 1] = { ...last, text: clean(last.text + " " + t.text) };
+    } else {
+      out.push({ ...t, text: clean(t.text) });
+    }
+  }
+  return out;
+}
+
+function clean(s: string): string {
+  let t = (s ?? "").trim();
+  // Strip a single layer of wrapping quotes.
+  const pairs: [string, string][] = [['"', '"'], ["“", "”"], ["'", "'"], ["‘", "’"]];
+  for (const [o, c] of pairs) {
+    if (t.length >= 2 && t.startsWith(o) && t.endsWith(c)) {
+      t = t.slice(1, -1).trim();
+      break;
+    }
+  }
+  return t
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/\s+'(\w)/g, "'$1");
 }
 
 function TurnBubble({ turn }: { turn: TranscriptTurn }) {
