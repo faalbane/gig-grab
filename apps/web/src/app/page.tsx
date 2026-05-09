@@ -20,21 +20,23 @@ export default function WorkerLanding() {
           {process.env.NEXT_PUBLIC_HOTLINE && (
             <a
               href={`tel:${process.env.NEXT_PUBLIC_HOTLINE.replace(/[^+\d]/g, "")}`}
-              className="group mx-auto mt-4 block max-w-6xl px-6"
+              className="group mx-auto mt-4 block max-w-6xl px-6 sm:pointer-events-none sm:cursor-default"
             >
-              <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-5 py-4 text-white shadow-sm transition-transform hover:scale-[1.01] sm:flex-row sm:gap-5 sm:py-3">
+              <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-5 py-4 text-white shadow-sm transition-transform group-hover:scale-[1.01] sm:flex-row sm:gap-5 sm:py-3 sm:group-hover:scale-100">
                 <span className="grid h-12 w-12 place-items-center rounded-full bg-white/15 text-2xl">
                   📞
                 </span>
                 <div className="flex-1 text-center sm:text-left">
                   <p className="text-xs uppercase tracking-wider text-emerald-100">
-                    Hotline · onboard in 2 minutes
+                    Hotline · call now to start finding work
                   </p>
                   <p className="text-2xl font-bold tracking-tight sm:text-3xl">
                     {process.env.NEXT_PUBLIC_HOTLINE}
                   </p>
                 </div>
-                <span className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-emerald-700 group-hover:bg-emerald-50">
+                {/* Tap-to-call button shows only on mobile (sm:hidden hides on
+                    ≥sm). Desktop visitors can still see + read the number. */}
+                <span className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-emerald-700 group-hover:bg-emerald-50 sm:hidden">
                   Call now →
                 </span>
               </div>
