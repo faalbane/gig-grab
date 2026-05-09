@@ -5,7 +5,7 @@ import { UserMenu } from "./UserMenu";
 export function Header() {
   return (
     <header className="border-b border-gray-100 bg-white">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
         <Logo />
         <nav className="hidden gap-7 text-sm text-gray-700 sm:flex">
           <Link href="/" className="hover:text-gray-900">
