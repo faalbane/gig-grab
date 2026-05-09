@@ -287,11 +287,16 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     async def _on_connect(t, client):
         logger.info(f"[agent] on_client_connected fired (session={cfg.session_id})")
         # Hard cap on greeting length so the candidate doesn't sit through
-        # a monologue. Stays consistent with the SYSTEM_PROMPT length rules.
+        # a monologue. The chosen call language ('{cfg.language}') is fixed
+        # — the agent must NOT switch languages based on the candidate's
+        # name, accent, or any guess. Only switch if the candidate
+        # themselves switches.
         kickoff = (
-            f"The call just connected. Greet the candidate in {cfg.language} "
-            f"in ONE short sentence (≤12 words). Say you're Sarah from "
-            f"GigGrab and ask their name. Nothing else."
+            f"The call just connected. The candidate already picked "
+            f"'{cfg.language}' as their call language — stay in {cfg.language} "
+            f"unless they switch first. Greet them in ONE short sentence "
+            f"(≤12 words): say you're Sarah from GigGrab and ask their name. "
+            f"Nothing else."
         )
         context.add_message({"role": "user", "content": kickoff})
         await task.queue_frames([LLMRunFrame()])
