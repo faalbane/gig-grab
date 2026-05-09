@@ -13,33 +13,33 @@ export default function WorkerLanding() {
 
       <main>
         <div className="border-b border-gray-100 bg-gradient-to-b from-emerald-50/60 via-emerald-50/30 to-white">
-          <div className="mx-auto flex max-w-6xl justify-center px-6 pt-10">
+          <div className="mx-auto flex max-w-6xl justify-center px-6 pt-6">
             <AudienceToggle active="worker" />
           </div>
 
-          <section className="mx-auto grid max-w-6xl gap-12 px-6 py-16 lg:grid-cols-2 lg:items-center lg:gap-16 lg:py-24">
+          <section className="mx-auto grid max-w-6xl gap-8 px-6 py-8 sm:py-10 lg:grid-cols-2 lg:items-center lg:gap-16 lg:py-16">
             <div>
               <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
                 ⚡ For every kind of worker
               </span>
-              <h1 className="mt-6 text-5xl font-semibold leading-[1.05] tracking-tight text-gray-900 sm:text-6xl">
+              <h1 className="mt-4 text-4xl font-semibold leading-[1.05] tracking-tight text-gray-900 sm:text-5xl lg:text-6xl">
                 Speak it.
                 <br />
                 Match it.
                 <br />
                 <span className="text-emerald-600">Get hired.</span>
               </h1>
-              <p className="mt-6 max-w-md text-lg text-gray-600">
+              <p className="mt-4 max-w-md text-base text-gray-600 sm:text-lg">
                 No CV. No forms. Just a quick voice chat with our AI recruiter
                 — in any language — and we&apos;ll match you to live jobs in
                 your field.
               </p>
 
-              <div className="mt-6">
+              <div className="mt-4">
                 <LanguagesStrip />
               </div>
 
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/start"
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
@@ -54,7 +54,7 @@ export default function WorkerLanding() {
                 </Link>
               </div>
 
-              <p className="mt-5 text-sm text-gray-500">
+              <p className="mt-3 text-sm text-gray-500">
                 ✓ Verified employers · 12k+ live jobs
               </p>
             </div>

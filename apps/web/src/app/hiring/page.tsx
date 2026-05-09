@@ -13,34 +13,34 @@ export default function EmployerLanding() {
 
       <main>
         <div className="border-b border-gray-100 bg-gradient-to-b from-emerald-50/60 via-emerald-50/30 to-white">
-          <div className="mx-auto flex max-w-6xl justify-center px-6 pt-10">
+          <div className="mx-auto flex max-w-6xl justify-center px-6 pt-6">
             <AudienceToggle active="employer" />
           </div>
 
-          <section className="mx-auto grid max-w-6xl gap-12 px-6 py-16 lg:grid-cols-2 lg:items-center lg:gap-16 lg:py-24">
+          <section className="mx-auto grid max-w-6xl gap-8 px-6 py-8 sm:py-10 lg:grid-cols-2 lg:items-center lg:gap-16 lg:py-16">
             <div>
               <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
                 💼 For employers &amp; agencies
               </span>
-              <h1 className="mt-6 text-5xl font-semibold leading-[1.05] tracking-tight text-gray-900 sm:text-6xl">
+              <h1 className="mt-4 text-4xl font-semibold leading-[1.05] tracking-tight text-gray-900 sm:text-5xl lg:text-6xl">
                 Tell us the work.
                 <br />
                 <span className="text-emerald-600">
                   We&apos;ll find the workers.
                 </span>
               </h1>
-              <p className="mt-6 max-w-md text-lg text-gray-600">
+              <p className="mt-4 max-w-md text-base text-gray-600 sm:text-lg">
                 Match from our vetted pool — or plug in your own ATS. Describe
                 the role by voice, upload a JD, paste a link, or connect your
                 ATS — our AI ranks the best matches from our pool and yours,
                 then runs AI interviews on your behalf.
               </p>
 
-              <div className="mt-6">
+              <div className="mt-4">
                 <LanguagesStrip />
               </div>
 
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/start/hiring"
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
@@ -55,11 +55,11 @@ export default function EmployerLanding() {
                 </Link>
               </div>
 
-              <p className="mt-5 text-sm text-gray-500">
+              <p className="mt-3 text-sm text-gray-500">
                 We&apos;ll call you to record project details — takes &lt; 5
                 minutes.
               </p>
-              <p className="mt-2 text-sm text-gray-500">
+              <p className="mt-1.5 text-sm text-gray-500">
                 ✓ 30k+ verified workers · Avg. 4 hrs to first match
               </p>
             </div>
