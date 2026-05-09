@@ -1,8 +1,10 @@
 import { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
+import { randomUUID } from "node:crypto";
 import { getAuth } from "firebase-admin/auth";
-import { db, candidates } from "@gig-grab/db";
+import { db, candidates, sessions } from "@gig-grab/db";
 import { eq } from "drizzle-orm";
+import { signSessionToken } from "./security";
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 const VERIFY_API = "https://verify.twilio.com/v2";
@@ -47,6 +49,68 @@ export async function accountMe(req: Request, res: Response): Promise<void> {
       email: row.email ?? null,
       language: row.language,
     },
+  });
+}
+
+/**
+ * POST /api/account/web-call/start
+ *
+ * Auth: Firebase ID token. Mints a candidate_intake session and returns the
+ * agent WebSocket URL + session HMAC token so the browser can connect mic
+ * audio directly to the agent. No Twilio involved.
+ */
+export async function accountWebCallStart(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  let candidate = await findCandidateByUid(auth.uid);
+  if (!candidate) {
+    // Lazy-create a stub if the user hit /voice before any other onboarding.
+    const id = randomUUID();
+    [candidate] = await db()
+      .insert(candidates)
+      .values({
+        id,
+        firebaseUid: auth.uid,
+        phone: `pending-${id.slice(0, 8)}`,
+        language: "en",
+      })
+      .returning();
+  }
+
+  const language = (req.body?.language ?? candidate.language ?? "en") as string;
+  const audience =
+    (req.body?.audience ?? "worker") === "employer" ? "employer" : "worker";
+  const sessionId = randomUUID();
+  await db().insert(sessions).values({
+    id: sessionId,
+    kind: audience === "employer" ? "employer_intake" : "candidate_intake",
+    candidateId: candidate.id,
+    language,
+    status: "ringing",
+  });
+
+  // Browser connects to the agent's web-ws endpoint. The HMAC token isn't
+  // strictly used by the agent yet (it just verifies session existence) but
+  // it's already required by /sessions/:id/status + /turns for live UI.
+  const agentBase =
+    process.env.AGENT_WS_URL?.replace(/\/ws$/, "") ??
+    "wss://gig-grab.onrender.com";
+  const wsUrl =
+    `${agentBase}/web-ws?sessionId=${encodeURIComponent(sessionId)}` +
+    `&language=${encodeURIComponent(language)}` +
+    `&audience=${encodeURIComponent(audience)}`;
+
+  res.json({
+    sessionId,
+    candidateId: candidate.id,
+    wsUrl,
+    token: signSessionToken(sessionId),
   });
 }
 

@@ -17,6 +17,7 @@ import {
   accountMe,
   accountPhoneStart,
   accountPhoneConfirm,
+  accountWebCallStart,
 } from "./account";
 
 initializeApp();
@@ -137,6 +138,10 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/account/phone/confirm") {
         await accountPhoneConfirm(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/account/web-call/start") {
+        await accountWebCallStart(req, res);
         return;
       }
       res.status(404).json({ error: "not found", path });

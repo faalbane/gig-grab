@@ -252,6 +252,8 @@ class AgentConfig:
     language: str = "en"
     audience: str = "worker"
     inbound: bool = False  # True for hotline calls (no web form pre-fill)
+    surface: str = "phone"  # "phone" (Twilio Media Streams, 8kHz mu-law) or
+                            # "web" (browser mic, 16kHz int16 PCM)
 
 
 async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig):
@@ -310,11 +312,15 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ]
     )
 
+    # Sample rate depends on the transport protocol — Twilio Media Streams
+    # is 8 kHz mu-law, browser raw-PCM is 16 kHz. Set both inputs+outputs
+    # to match the surface so the audio path doesn't resample lossily.
+    sr = 16000 if cfg.surface == "web" else 8000
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
-            audio_in_sample_rate=8000,  # Twilio mu-law is 8kHz
-            audio_out_sample_rate=8000,
+            audio_in_sample_rate=sr,
+            audio_out_sample_rate=sr,
             allow_interruptions=True,
         ),
     )
@@ -391,5 +397,31 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
     await db.update_session_status(session_id=cfg.session_id, status="in_progress")
 
     # Kickoff happens inside on_client_connected (registered in build_pipeline).
+    runner = PipelineRunner()
+    await runner.run(task)
+
+
+async def run_web_agent(websocket, cfg: AgentConfig):
+    """Browser-direct path. Same Pipeline, different transport+serializer.
+
+    Wire format is raw int16 PCM at 16 kHz mono in both directions. No
+    stream_sid — the WS connection IS the call. cfg.surface should be "web".
+    """
+    from .web_serializer import RawPcm16Serializer  # avoid import-cycle on phone-only deploys
+
+    serializer = RawPcm16Serializer()
+    transport = FastAPIWebsocketTransport(
+        websocket=websocket,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            add_wav_header=False,
+            serializer=serializer,
+        ),
+    )
+
+    task, _context, _user_aggregator = await build_pipeline(transport, cfg)
+    await db.update_session_status(session_id=cfg.session_id, status="in_progress")
+
     runner = PipelineRunner()
     await runner.run(task)

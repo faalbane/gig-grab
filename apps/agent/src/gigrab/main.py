@@ -16,7 +16,8 @@ import sys
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import uvicorn
 
-from .agent import AgentConfig, run_agent
+from .agent import AgentConfig, run_agent, run_web_agent
+from . import db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,6 +55,58 @@ async def ws_endpoint_root(websocket: WebSocket):
 @app.websocket("/agent/ws")
 async def ws_endpoint_prefixed(websocket: WebSocket):
     await _ws_handler(websocket)
+
+
+# Browser-direct mic flow. Auth = the api created the session row (so the
+# sessionId existing AT ALL is proof the api authenticated the user) and
+# we look up its candidate so the agent can bind to the right context.
+# The `language` query param tells the kickoff what language to start in.
+@app.websocket("/web-ws")
+async def web_ws_endpoint(websocket: WebSocket):
+    await _web_ws_handler(websocket)
+
+
+@app.websocket("/agent/web-ws")
+async def web_ws_endpoint_prefixed(websocket: WebSocket):
+    await _web_ws_handler(websocket)
+
+
+async def _web_ws_handler(websocket: WebSocket):
+    from urllib.parse import parse_qs, urlparse
+
+    qs = parse_qs(urlparse(str(websocket.url)).query)
+    session_id = (qs.get("sessionId") or [""])[0]
+    language = (qs.get("language") or ["en"])[0]
+    audience = (qs.get("audience") or ["worker"])[0]
+
+    await websocket.accept()
+
+    if not session_id:
+        logger.warning("web-ws connect missing sessionId — closing")
+        await websocket.close(code=4400)
+        return
+
+    # Verify the session row exists; otherwise reject. This stops random
+    # WS clients from spinning up Pipecat pipelines.
+    session = await db.fetch_session(session_id)
+    if not session:
+        logger.warning(f"web-ws unknown session {session_id} — closing")
+        await websocket.close(code=4404)
+        return
+
+    cfg = AgentConfig(
+        session_id=session_id,
+        language=language,
+        audience=audience,
+        surface="web",
+    )
+    logger.info(f"web-ws session start: session={session_id} lang={language}")
+    try:
+        await run_web_agent(websocket, cfg)
+    except WebSocketDisconnect:
+        logger.info(f"web-ws session disconnected: {session_id}")
+    except Exception:
+        logger.exception(f"web-ws session crashed: {session_id}")
 
 
 async def _ws_handler(websocket: WebSocket):

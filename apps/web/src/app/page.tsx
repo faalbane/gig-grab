@@ -44,7 +44,13 @@ export default function WorkerLanding() {
                   href="/start"
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
                 >
-                  🎙 Start speaking →
+                  🎙 Call me
+                </Link>
+                <Link
+                  href="/voice"
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-emerald-600 bg-white px-6 py-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
+                >
+                  🎤 Use my microphone
                 </Link>
                 <Link
                   href="#how-it-works"
