@@ -286,11 +286,12 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     @transport.event_handler("on_client_connected")
     async def _on_connect(t, client):
         logger.info(f"[agent] on_client_connected fired (session={cfg.session_id})")
+        # Hard cap on greeting length so the candidate doesn't sit through
+        # a monologue. Stays consistent with the SYSTEM_PROMPT length rules.
         kickoff = (
-            f"You're starting an outbound call to a candidate. Greet them "
-            f"warmly in {cfg.language}, introduce yourself as Sarah from "
-            f"Gig-grab (an AI hiring assistant), and ask their name plus "
-            f"the language they're most comfortable speaking. Under 25 words."
+            f"The call just connected. Greet the candidate in {cfg.language} "
+            f"in ONE short sentence (≤12 words). Say you're Sarah from "
+            f"GigGrab and ask their name. Nothing else."
         )
         context.add_message({"role": "user", "content": kickoff})
         await task.queue_frames([LLMRunFrame()])
