@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 
@@ -92,6 +93,43 @@ DEFAULT_CARTESIA_VOICE = "79a125e8-cd45-4c13-8a67-188112f4dd22"
 # out non-colliding `ord` values.
 _TRANSCRIPT_ORD: dict[str, int] = {}
 _TRANSCRIPT_START_MS: dict[str, int] = {}
+
+
+# 4+ consecutive single-letter tokens separated by whitespace — Deepgram's
+# emission for someone spelling out "A-L-B-A-N-E-S-E" reaches the agent as
+# "a l b a n e s e". Llama 3.1 8B routinely drops or repeats letters when
+# reading those back, so we pre-concatenate before the LLM sees the text.
+_SPELL_OUT_RE = re.compile(r"\b([A-Za-z](?:[ .\-]+[A-Za-z]){3,})\b")
+
+
+def _normalise_spell_out(text: str) -> str:
+    def replace(m: re.Match) -> str:
+        letters = re.findall(r"[A-Za-z]", m.group(0))
+        joined = "".join(letters).upper()
+        return f"{'-'.join(letters).upper()} ({joined})"
+
+    return _SPELL_OUT_RE.sub(replace, text)
+
+
+class CandidateTextNormalizer(FrameProcessor):
+    """Rewrites TranscriptionFrame text to make spell-outs unambiguous to
+    the LLM. Sits between STT and the candidate-side db writer."""
+
+    def __init__(self) -> None:
+        super().__init__(name="candidate-text-normalizer")
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if (
+            isinstance(frame, TranscriptionFrame)
+            and not isinstance(frame, InterimTranscriptionFrame)
+            and getattr(frame, "text", None)
+        ):
+            new = _normalise_spell_out(frame.text)
+            if new != frame.text:
+                logger.info(f"[normalizer] spell-out: {frame.text!r} → {new!r}")
+                frame.text = new
+        await self.push_frame(frame, direction)
 
 
 def _next_ord(session_id: str) -> int:
@@ -252,6 +290,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ),
     )
 
+    normalizer = CandidateTextNormalizer()
     db_writer_user = TranscriptDbWriter(cfg.session_id, role="candidate")
     db_writer_ai = TranscriptDbWriter(cfg.session_id, role="ai")
 
@@ -259,6 +298,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         [
             transport.input(),
             stt,
+            normalizer,         # rewrites spell-out patterns before LLM sees them
             db_writer_user,     # captures candidate's TranscriptionFrames
             user_aggregator,
             llm,
