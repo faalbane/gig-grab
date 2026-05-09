@@ -251,6 +251,7 @@ class AgentConfig:
     session_id: str
     language: str = "en"
     audience: str = "worker"
+    inbound: bool = False  # True for hotline calls (no web form pre-fill)
 
 
 async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig):
@@ -325,19 +326,26 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     # drops frames in transit.
     @transport.event_handler("on_client_connected")
     async def _on_connect(t, client):
-        logger.info(f"[agent] on_client_connected fired (session={cfg.session_id})")
-        # Hard cap on greeting length so the candidate doesn't sit through
-        # a monologue. The chosen call language ('{cfg.language}') is fixed
-        # — the agent must NOT switch languages based on the candidate's
-        # name, accent, or any guess. Only switch if the candidate
-        # themselves switches.
-        kickoff = (
-            f"The call just connected. The candidate already picked "
-            f"'{cfg.language}' as their call language — stay in {cfg.language} "
-            f"unless they switch first. Greet them in ONE short sentence "
-            f"(≤12 words): say you're Sarah from GigGrab and ask their name. "
-            f"Nothing else."
+        logger.info(
+            f"[agent] on_client_connected fired (session={cfg.session_id} inbound={cfg.inbound})"
         )
+        if cfg.inbound:
+            # Hotline caller — we don't know their preferred language yet
+            # because they didn't fill the web form. First turn asks.
+            kickoff = (
+                "An inbound caller just dialled GigGrab's hotline. "
+                "Greet them in English in ONE short sentence (≤14 words): "
+                "say you're Sarah from GigGrab, then ask their name and what "
+                "language they'd like to speak. Nothing else."
+            )
+        else:
+            kickoff = (
+                f"The call just connected. The candidate already picked "
+                f"'{cfg.language}' as their call language — stay in {cfg.language} "
+                f"unless they switch first. Greet them in ONE short sentence "
+                f"(≤12 words): say you're Sarah from GigGrab and ask their "
+                f"name. Nothing else."
+            )
         context.add_message({"role": "user", "content": kickoff})
         await task.queue_frames([LLMRunFrame()])
 

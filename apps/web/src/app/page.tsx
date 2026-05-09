@@ -57,6 +57,18 @@ export default function WorkerLanding() {
               <p className="mt-2 text-sm text-gray-500">
                 ✓ Verified employers · 12k+ live jobs
               </p>
+
+              {process.env.NEXT_PUBLIC_HOTLINE && (
+                <p className="mt-3 text-sm text-gray-700">
+                  Or just call our hotline:{" "}
+                  <a
+                    href={`tel:${process.env.NEXT_PUBLIC_HOTLINE.replace(/[^+\d]/g, "")}`}
+                    className="font-semibold text-emerald-700 hover:text-emerald-800"
+                  >
+                    {process.env.NEXT_PUBLIC_HOTLINE}
+                  </a>
+                </p>
+              )}
             </div>
 
             <div className="lg:pl-8">

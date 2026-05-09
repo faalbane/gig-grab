@@ -4,7 +4,12 @@ import { initializeApp } from "firebase-admin/app";
 import { db, candidates } from "@gig-grab/db";
 import { count } from "drizzle-orm";
 import { intakeStart } from "./intake";
-import { twilioVoice, twilioStatus } from "./twilio-webhook";
+import {
+  twilioVoice,
+  twilioStatus,
+  twilioInbound,
+  twilioInboundStatus,
+} from "./twilio-webhook";
 import { sessionProfileGet } from "./profile";
 import { sessionStatusGet, sessionTurnsGet } from "./sessions";
 import { authLink } from "./auth";
@@ -87,6 +92,14 @@ export const api = onRequest(
       const statusMatch = path.match(/^\/twilio\/status\/([0-9a-f-]{36})$/);
       if (statusMatch && method === "POST") {
         await twilioStatus(req, res, statusMatch[1]);
+        return;
+      }
+      if (method === "POST" && path === "/twilio/inbound") {
+        await twilioInbound(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/twilio/status") {
+        await twilioInboundStatus(req, res);
         return;
       }
       const profileMatch = path.match(

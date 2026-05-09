@@ -69,6 +69,7 @@ async def _ws_handler(websocket: WebSocket):
     session_id = ""
     language = "en"
     audience = "worker"
+    inbound = False
     try:
         for _ in range(3):
             msg = json.loads(await websocket.receive_text())
@@ -82,6 +83,7 @@ async def _ws_handler(websocket: WebSocket):
                 session_id = params.get("sessionId", "") or ""
                 language = params.get("language", "en") or "en"
                 audience = params.get("audience", "worker") or "worker"
+                inbound = (params.get("inbound", "") or "") == "1"
                 break
             logger.warning(f"ws unexpected event before start: {event!r}")
             await websocket.close(code=4400)
@@ -105,9 +107,14 @@ async def _ws_handler(websocket: WebSocket):
         await websocket.close(code=4400)
         return
 
-    cfg = AgentConfig(session_id=session_id, language=language, audience=audience)
+    cfg = AgentConfig(
+        session_id=session_id,
+        language=language,
+        audience=audience,
+        inbound=inbound,
+    )
     logger.info(
-        f"ws session start: session={session_id} stream={stream_sid} lang={language}"
+        f"ws session start: session={session_id} stream={stream_sid} lang={language} inbound={inbound}"
     )
     try:
         await run_agent(websocket, cfg, stream_sid=stream_sid)

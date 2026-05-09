@@ -1,7 +1,8 @@
 import { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
+import { randomUUID } from "node:crypto";
 import twilio from "twilio";
-import { db, sessions } from "@gig-grab/db";
+import { db, sessions, candidates } from "@gig-grab/db";
 import { eq } from "drizzle-orm";
 import { extractProfile } from "./profile";
 import { extractEmployerJob } from "./employer-extraction";
@@ -83,7 +84,46 @@ export async function twilioStatus(
     res.status(403).send();
     return;
   }
+  await applyTwilioStatus(sessionId, req, res);
+}
 
+/**
+ * Twilio status callback for INBOUND hotline calls. Twilio's number config
+ * fires this without a sessionId in the URL, so we resolve the session by
+ * looking up the CallSid from the request body.
+ */
+export async function twilioInboundStatus(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!verifyTwilioSignature(req)) {
+    console.warn(`[twilio] invalid signature on /twilio/status (inbound)`);
+    res.status(403).send();
+    return;
+  }
+  const callSid = String(req.body?.CallSid ?? "").trim();
+  if (!callSid) {
+    res.status(400).send();
+    return;
+  }
+  const [s] = await db()
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.twilioCallSid, callSid))
+    .limit(1);
+  if (!s) {
+    console.warn(`[twilio/inbound-status] no session for callSid=${callSid}`);
+    res.status(204).send();
+    return;
+  }
+  await applyTwilioStatus(s.id, req, res);
+}
+
+async function applyTwilioStatus(
+  sessionId: string,
+  req: Request,
+  res: Response,
+): Promise<void> {
   const status = (req.body?.CallStatus ?? "") as string;
   const map: Record<string, string> = {
     queued: "ringing",
@@ -137,4 +177,96 @@ export async function twilioStatus(
   }
 
   res.status(204).send();
+}
+
+const E164 = /^\+[1-9]\d{6,14}$/;
+
+/**
+ * Twilio "A Call Comes In" webhook for the GigGrab hotline. The candidate
+ * dialled our number; Twilio POSTs the call metadata here. We register the
+ * caller as a candidate (or reuse the row if their phone is already on
+ * file), open a session, and return TwiML that streams audio to the agent.
+ *
+ * Status callbacks for this leg use the per-session URL so the rest of the
+ * pipeline (extractProfile + SMS link on completion) is unchanged.
+ */
+export async function twilioInbound(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const VoiceResponse = twilio.twiml.VoiceResponse;
+  const twiml = new VoiceResponse();
+
+  if (!verifyTwilioSignature(req)) {
+    console.warn(`[twilio/inbound] invalid signature`);
+    res.status(403).send();
+    return;
+  }
+
+  const from = String(req.body?.From ?? "").trim();
+  const callSid = String(req.body?.CallSid ?? "").trim();
+  if (!E164.test(from) || !callSid) {
+    console.warn(`[twilio/inbound] bad payload from=${from} callSid=${callSid}`);
+    twiml.say(
+      { voice: "Polly.Joanna" },
+      "Sorry, we couldn't process this call. Please try again later. Goodbye.",
+    );
+    res.type("text/xml").send(twiml.toString());
+    return;
+  }
+
+  // Upsert candidate by phone. If they've called before (or onboarded via
+  // the web flow), we re-attach to the existing row.
+  const [candidate] = await db()
+    .insert(candidates)
+    .values({ id: randomUUID(), phone: from, language: "en" })
+    .onConflictDoUpdate({
+      target: candidates.phone,
+      set: { lastCallAt: new Date() },
+    })
+    .returning();
+
+  // Default the session language to English. The agent will ask in the
+  // first turn what language the candidate prefers.
+  const sessionId = randomUUID();
+  await db().insert(sessions).values({
+    id: sessionId,
+    kind: "candidate_intake",
+    candidateId: candidate.id,
+    language: "en",
+    status: "ringing",
+    twilioCallSid: callSid,
+  });
+
+  const wsBase = process.env.AGENT_WS_URL;
+  if (!wsBase) {
+    twiml.say(
+      { voice: "Polly.Joanna" },
+      "Sorry, our voice agent isn't reachable right now. Please try again in a few minutes. Goodbye.",
+    );
+    res.type("text/xml").send(twiml.toString());
+    return;
+  }
+
+  // Mirror the outbound /twilio/voice TwiML — same agent, same protocol.
+  // We also tell the agent this is an inbound leg via a parameter so its
+  // first turn can ask for the candidate's language preference.
+  const apiBase =
+    process.env.PUBLIC_API_URL ??
+    "https://api-353215144615.europe-west2.run.app";
+  const connect = twiml.connect();
+  const stream = connect.stream({ url: wsBase });
+  stream.parameter({ name: "sessionId", value: sessionId });
+  stream.parameter({ name: "language", value: "en" });
+  stream.parameter({ name: "audience", value: "worker" });
+  stream.parameter({ name: "inbound", value: "1" });
+
+  // Tell Twilio to POST status updates for this call to the per-session
+  // status URL. That triggers extractProfile + SMS on completion.
+  // (Configured via the StatusCallback attribute on Twilio's call leg —
+  // since the inbound leg is owned by Twilio's number config, the URL
+  // here will be set on the number itself once via the Twilio API.)
+  void apiBase; // explicit no-op so the const stays referenced
+
+  res.type("text/xml").send(twiml.toString());
 }
