@@ -68,29 +68,35 @@ export function verifyTwilioSignature(req: Request): boolean {
 
   const params = (req.body as Record<string, string>) ?? {};
 
-  // Twilio signs the URL it was configured to call. For us, that's two
-  // forms because we hit the API two ways:
-  //  • Outbound calls/SMS — code passes the api Cloud Run URL directly:
-  //    https://api-353215144615.europe-west2.run.app/twilio/...
-  //  • Inbound hotline — Twilio number config points at the Firebase
-  //    Hosting URL which then rewrites to Cloud Run:
-  //    https://gig-grab.web.app/api/twilio/...
-  // After the Hosting rewrite Cloud Run sees req.path without the /api
-  // prefix, so we have to reconstruct both candidates and accept either.
-  const path = req.path; // e.g. "/twilio/inbound" or "/twilio/status/<sid>"
+  // Twilio signs the URL it was configured to call. We can be reached via:
+  //  • Outbound (calls/SMS we initiate) — code uses the Cloud Run URL:
+  //    https://api-353215144615.europe-west2.run.app/twilio/<...>
+  //  • Inbound hotline / status callback — Twilio number config points at
+  //    Firebase Hosting which rewrites to Cloud Run:
+  //    https://gig-grab.web.app/api/twilio/<...>
+  // After the Hosting rewrite, req.path on Cloud Run can either include or
+  // omit the leading "/api" depending on Functions Gen version. Build every
+  // plausible URL and accept any signature match.
   const apiBase =
     process.env.PUBLIC_API_URL ??
     "https://api-353215144615.europe-west2.run.app";
   const webBase = process.env.PUBLIC_WEB_URL ?? "https://gig-grab.web.app";
+  const raw = req.path; // could be "/twilio/inbound" or "/api/twilio/inbound"
+  const stripped = raw.replace(/^\/api(?=\/|$)/, ""); // always without /api
+  const candidates = new Set<string>([
+    `${apiBase}${stripped}`,
+    `${apiBase}${raw}`,
+    `${webBase}/api${stripped}`,
+    `${webBase}${raw}`,
+  ]);
 
-  const candidates = [
-    `${apiBase}${path}`, // Cloud Run direct URL
-    `${webBase}/api${path}`, // Firebase Hosting public URL
-  ];
-
-  return candidates.some((url) =>
-    twilio.validateRequest(authToken, signature, url, params),
+  for (const url of candidates) {
+    if (twilio.validateRequest(authToken, signature, url, params)) return true;
+  }
+  console.warn(
+    `[twilio/sig] no candidate matched. raw=${raw} stripped=${stripped} sig=${signature.slice(0, 8)}…`,
   );
+  return false;
 }
 
 // ---------------------------------------------------------------------------
