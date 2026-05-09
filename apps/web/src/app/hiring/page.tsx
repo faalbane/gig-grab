@@ -12,7 +12,7 @@ export default function EmployerLanding() {
       <Header />
 
       <main>
-        <div className="border-b border-gray-100 bg-white">
+        <div className="border-b border-gray-100 bg-gradient-to-b from-emerald-50/60 via-emerald-50/30 to-white">
           <div className="mx-auto flex max-w-6xl justify-center px-6 pt-10">
             <AudienceToggle active="employer" />
           </div>
@@ -72,19 +72,23 @@ export default function EmployerLanding() {
 
         <div id="how-it-works">
           <ThreeStepsSection
-            heading="Hire in 3 simple steps"
+            heading="How it works"
+            subheading="Describe the role, review the brief, pick from ranked workers."
             steps={[
               {
                 title: "Describe the role — or connect your ATS",
                 body: "Talk to our AI, upload a JD, paste a link, or sync Greenhouse / Workable / Ashby / BambooHR to filter your own pool.",
+                icon: "🎙",
               },
               {
                 title: "Review your job post",
                 body: "We turn it into a clean, structured brief — edit anything.",
+                icon: "📝",
               },
               {
                 title: "Pick from ranked workers",
                 body: "Top matches from our vetted pool and yours, with a 'why ranked' explanation.",
+                icon: "⚡",
               },
             ]}
           />

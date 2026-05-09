@@ -12,7 +12,7 @@ export default function WorkerLanding() {
       <Header />
 
       <main>
-        <div className="border-b border-gray-100 bg-white">
+        <div className="border-b border-gray-100 bg-gradient-to-b from-emerald-50/60 via-emerald-50/30 to-white">
           <div className="mx-auto flex max-w-6xl justify-center px-6 pt-10">
             <AudienceToggle active="worker" />
           </div>
@@ -67,19 +67,23 @@ export default function WorkerLanding() {
 
         <div id="how-it-works">
           <ThreeStepsSection
-            heading="Find work in 3 simple steps"
+            heading="How it works"
+            subheading="Get matched to jobs that fit your skills, location, and schedule."
             steps={[
               {
                 title: "Speak (any language)",
                 body: "Tell our AI what you do, where you'd work, and what you're looking for — in your native language.",
+                icon: "🎙",
               },
               {
                 title: "Get matched",
                 body: "We rank live jobs by skills, location and pay — best first.",
+                icon: "🌐",
               },
               {
                 title: "Apply & get hired",
                 body: "One-tap apply, or let us auto-apply on your behalf.",
+                icon: "⚡",
               },
             ]}
           />
