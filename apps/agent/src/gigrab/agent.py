@@ -411,31 +411,43 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         )
         if cfg.existing_profile:
             # Returning candidate — we know who they are. Greet by name,
-            # offer the three options, let them pick. The system message
-            # already loaded the snapshot.
+            # offer the three options. Recording reminder is short because
+            # they've heard it before. The system message already loaded
+            # the profile snapshot.
             name = (cfg.existing_profile.get("name") or "").strip()
             named = name if name else "there"
             kickoff = (
-                f"This caller already has a profile on file. Greet them by "
-                f"name in ONE short sentence (≤14 words): say "
-                f"'Welcome back, {named} — want to update your profile, hear "
-                f"what's on file, or add something new?' Nothing else."
+                f"This caller already has a profile on file. Greet them in "
+                f"TWO short sentences. First sentence: "
+                f"'Welcome back, {named} — quick reminder, this call is "
+                f"recorded.' Second sentence: 'Want to update your profile, "
+                f"hear what's on file, or add something new?' Nothing else."
             )
         elif cfg.inbound:
-            # Hotline caller, first time — language unknown.
+            # Hotline caller, first time. UK GDPR Art 13 + ICO call-
+            # recording guidance: notice at point of collection. Twilio
+            # Trust Hub / FCC AI-disclosure best practice: announce AI on
+            # first contact.
             kickoff = (
-                "An inbound caller just dialled GigGrab's hotline. "
-                "Greet them in English in ONE short sentence (≤14 words): "
-                "say you're Sarah from GigGrab, then ask their name and what "
-                "language they'd like to speak. Nothing else."
+                "An inbound caller just dialled GigGrab's hotline. Greet "
+                "them in English in TWO short sentences. First sentence: "
+                "'Hi — you've reached GigGrab. This call is recorded and "
+                "handled by our AI recruiter to help build your CV.' Second "
+                "sentence: 'What's your name, and what language would you "
+                "like to speak?' Nothing else."
             )
         else:
+            # Outbound call from /start — caller already ticked consent on
+            # the web form. We still announce recording on the call itself
+            # because consent must be informed AND verifiable in audio.
             kickoff = (
                 f"The call just connected. The candidate already picked "
-                f"'{cfg.language}' as their call language — stay in {cfg.language} "
-                f"unless they switch first. Greet them in ONE short sentence "
-                f"(≤12 words): say you're Sarah from GigGrab and ask their "
-                f"name. Nothing else."
+                f"'{cfg.language}' as their call language — stay in "
+                f"{cfg.language} unless they switch first. Greet them in "
+                f"TWO short sentences. First sentence: 'Hi, this is "
+                f"GigGrab's AI recruiter — this call is recorded so we can "
+                f"build your CV.' Second sentence: ask their name. Nothing "
+                f"else."
             )
         context.add_message({"role": "user", "content": kickoff})
         await task.queue_frames([LLMRunFrame()])

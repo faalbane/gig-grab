@@ -111,6 +111,9 @@ Voice calls feel awkward when the agent monologues. Hard rules:
 - Exception — only go longer when the candidate explicitly asks you to explain something, or when a careful clarification of a deal-breaker / pay range needs context.
 - Wrap-up summary at the end is the one place a longer turn is fine — keep it specific and under 25 words.
 
+# Recording disclosure — strict
+The very first turn of every call MUST tell the caller (a) that the call is recorded, and (b) that they're talking to an AI. This is non-negotiable: it's required by UK GDPR Article 13 (notice at point of collection) and is best practice under ICO call-recording guidance and Twilio's AI-disclosure norms. The kickoff prompt will give you the exact opening lines — say them, don't paraphrase them away. After the opening, you don't need to repeat the disclosure unless the caller asks.
+
 # What you're capturing
 You're working through these 8 categories, in roughly this order, but feel free to handle related answers together when natural:
 
@@ -248,17 +251,20 @@ def render_initial_message(ctx: CallContext) -> str:
     Localised by ISO code. Falls back to English. Keep these short — they're
     spoken aloud immediately when the candidate picks up.
     """
+    # Each greeting now includes the recording + AI disclosure required by
+    # UK GDPR Art. 13 and ICO call-recording guidance. Kept to two short
+    # sentences so it stays voice-natural.
     greetings = {
-        "en": "Hi! Thanks for picking up. What's your name, and what language are you most comfortable speaking?",
-        "es": "¡Hola! Gracias por contestar. ¿Cómo te llamas? ¿En qué idioma prefieres que hablemos?",
-        "fr": "Bonjour ! Merci d'avoir décroché. Comment vous appelez-vous, et dans quelle langue préférez-vous qu'on parle ?",
-        "de": "Hallo! Danke fürs Annehmen. Wie heißt du, und in welcher Sprache fühlst du dich am wohlsten?",
-        "pt": "Olá! Obrigado por atender. Qual é o seu nome, e em que idioma você prefere conversar?",
-        "it": "Ciao! Grazie per aver risposto. Come ti chiami, e in che lingua ti trovi più a tuo agio?",
-        "nl": "Hoi! Bedankt voor het opnemen. Hoe heet je, en in welke taal voel je je het prettigst?",
-        "hi": "नमस्ते! फ़ोन उठाने के लिए शुक्रिया। आपका नाम क्या है, और आप किस भाषा में बात करना पसंद करेंगे?",
-        "ja": "もしもし！お電話に出ていただきありがとうございます。お名前と、お話ししやすい言語を教えてください。",
-        "ru": "Здравствуйте! Спасибо, что взяли трубку. Как вас зовут, и на каком языке вам удобнее говорить?",
+        "en": "Hi — this is GigGrab's AI recruiter, and this call is recorded so we can build your CV. What's your name?",
+        "es": "Hola, soy la IA de GigGrab y esta llamada se graba para crear tu CV. ¿Cómo te llamas?",
+        "fr": "Bonjour, je suis le recruteur IA de GigGrab — cet appel est enregistré pour créer votre CV. Comment vous appelez-vous ?",
+        "de": "Hallo, hier ist GigGrabs KI-Recruiter — der Anruf wird aufgezeichnet, um deinen Lebenslauf zu erstellen. Wie heißt du?",
+        "pt": "Olá, sou a IA da GigGrab e esta chamada é gravada para criarmos o seu CV. Qual é o seu nome?",
+        "it": "Ciao, sono l'IA di GigGrab e questa chiamata è registrata per creare il tuo CV. Come ti chiami?",
+        "nl": "Hoi, dit is GigGrabs AI-recruiter — dit gesprek wordt opgenomen om je cv op te bouwen. Hoe heet je?",
+        "hi": "नमस्ते — मैं GigGrab की AI रिक्रूटर हूँ, और यह कॉल रिकॉर्ड हो रही है ताकि हम आपका CV बना सकें। आपका नाम क्या है?",
+        "ja": "もしもし。GigGrabのAIリクルーターです。CV作成のため、この通話は録音されています。お名前を教えてください。",
+        "ru": "Здравствуйте, это ИИ-рекрутер GigGrab — звонок записывается, чтобы составить ваше резюме. Как вас зовут?",
     }
     return greetings.get(ctx.language, greetings["en"])
 

@@ -15,7 +15,8 @@ export function VerifyForm({ audience }: Props) {
     setE164(v);
     setPhoneValid(ok);
   }, []);
-  const [consent, setConsent] = useState(true);
+  // GDPR: explicit consent — pre-ticked boxes are not valid (CNIL / ICO).
+  const [consent, setConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -112,8 +113,26 @@ export function VerifyForm({ audience }: Props) {
           className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
         />
         <span>
-          I agree to receive a call from GigGrab&apos;s AI recruiter and accept
-          the <a className="underline">privacy terms</a>.
+          I agree to receive a recorded call from GigGrab&apos;s AI recruiter
+          and accept the{" "}
+          <a
+            href="/legal/terms"
+            target="_blank"
+            rel="noreferrer"
+            className="text-emerald-700 underline hover:text-emerald-800"
+          >
+            Terms
+          </a>{" "}
+          and{" "}
+          <a
+            href="/legal/privacy"
+            target="_blank"
+            rel="noreferrer"
+            className="text-emerald-700 underline hover:text-emerald-800"
+          >
+            Privacy Policy
+          </a>
+          .
         </span>
       </label>
 
