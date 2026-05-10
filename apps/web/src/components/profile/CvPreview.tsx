@@ -73,17 +73,26 @@ export function CvPreview({ card, email, sessionId, token }: Props) {
             </Section>
           )}
 
-          {card.ticketsAndCards.length > 0 && (
-            <Section heading="Tickets & cards">
-              <ul className="grid gap-1 text-sm text-gray-800 sm:grid-cols-2">
-                {card.ticketsAndCards.map((t) => (
-                  <li key={t}>{t}</li>
-                ))}
-              </ul>
-            </Section>
-          )}
+          {(() => {
+            const tickets = (card.ticketsAndCards ?? [])
+              .map((t) => clean(t))
+              .filter(Boolean);
+            return tickets.length > 0 ? (
+              <Section heading="Tickets & cards">
+                <ul className="grid gap-1 text-sm text-gray-800 sm:grid-cols-2">
+                  {tickets.map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              </Section>
+            ) : null;
+          })()}
 
-          {card.recentProjects.length > 0 && (
+          {(card.recentProjects ?? []).filter(
+            (p) =>
+              p &&
+              (clean(p.role) || clean(p.company) || clean(p.description)),
+          ).length > 0 && (
             <Section heading="Recent projects">
               <div className="space-y-3">
                 {card.recentProjects.map((p, i) => (

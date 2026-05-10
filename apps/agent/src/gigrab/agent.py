@@ -218,15 +218,20 @@ class TranscriptDbWriter(FrameProcessor):
 
 
 def _format_profile_snapshot(p: dict) -> str:
-    """Render a profile_card row as a compact LLM-friendly snapshot."""
+    """Render a profile_card row as a compact LLM-friendly snapshot.
+
+    Filters out the empty-string sentinels Claude sometimes emits so we
+    never tell the LLM "Tickets & cards: [, ]".
+    """
     bits: list[str] = []
     name = (p.get("name") or "").strip()
     title = (p.get("title") or "").strip()
     years = p.get("years_experience") or 0
     location = (p.get("location") or "").strip()
     summary = (p.get("summary") or "").strip()
-    tickets = p.get("tickets_and_cards") or []
-    projects = p.get("recent_projects") or []
+    tickets_raw = p.get("tickets_and_cards") or []
+    projects_raw = p.get("recent_projects") or []
+    tickets = [str(t).strip() for t in tickets_raw if str(t).strip()]
     if name:
         bits.append(f"Name: {name}")
     if title:
@@ -238,10 +243,10 @@ def _format_profile_snapshot(p: dict) -> str:
     if summary:
         bits.append(f"Summary: {summary}")
     if tickets:
-        bits.append("Tickets & cards: " + ", ".join(str(t) for t in tickets))
-    if projects:
-        proj_lines = []
-        for proj in projects[:3]:
+        bits.append("Tickets & cards: " + ", ".join(tickets))
+    if projects_raw:
+        proj_lines: list[str] = []
+        for proj in projects_raw[:3]:
             if not isinstance(proj, dict):
                 continue
             role = (proj.get("role") or "").strip()
@@ -253,7 +258,7 @@ def _format_profile_snapshot(p: dict) -> str:
                 proj_lines.append(f"- {head}{tail}")
         if proj_lines:
             bits.append("Recent projects:\n" + "\n".join(proj_lines))
-    return "\n".join(bits) if bits else "(profile exists but is empty)"
+    return "\n".join(bits) if bits else "(profile exists but is mostly empty — use this call to enrich it)"
 
 
 def _clean_ai_text(s: str) -> str:

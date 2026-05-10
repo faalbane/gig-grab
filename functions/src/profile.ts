@@ -236,32 +236,72 @@ export async function extractProfile(sessionId: string): Promise<void> {
     recentProjects?: ProfileProject[];
   };
 
+  // MERGE rather than overwrite. A short follow-up call shouldn't blow
+  // away the rich profile a previous deep call captured. For each scalar
+  // field we keep the new value when it's non-empty, otherwise fall back
+  // to the existing row. For arrays we union (de-duped) so successive
+  // calls accumulate certs and projects.
+  const [existing] = await db()
+    .select()
+    .from(profileCards)
+    .where(eq(profileCards.candidateId, session.candidateId))
+    .limit(1);
+
+  const cleanStr = (s: string | null | undefined): string => {
+    const t = (s ?? "").trim();
+    if (!t || t === "<UNKNOWN>" || t.toLowerCase() === "unknown") return "";
+    return t;
+  };
+  const cleanArr = (xs: string[] | null | undefined): string[] =>
+    (xs ?? []).map(cleanStr).filter(Boolean);
+
+  const newName = cleanStr(input.name);
+  const newTitle = cleanStr(input.title);
+  const newLocation = cleanStr(input.location);
+  const newSummary = cleanStr(input.summary);
+  const newYears =
+    typeof input.yearsExperience === "number" && input.yearsExperience > 0
+      ? input.yearsExperience
+      : 0;
+  const newTickets = cleanArr(input.ticketsAndCards);
+  const newProjects = (input.recentProjects ?? []).filter(
+    (p) =>
+      p && (cleanStr(p.role) || cleanStr(p.company) || cleanStr(p.description)),
+  );
+
+  const merged = {
+    name: newName || existing?.name || "",
+    title: newTitle || existing?.title || "",
+    location: newLocation || existing?.location || "",
+    summary: newSummary || existing?.summary || "",
+    yearsExperience: Math.max(newYears, existing?.yearsExperience ?? 0),
+    ticketsAndCards: dedupeStrings([
+      ...(existing?.ticketsAndCards ?? []),
+      ...newTickets,
+    ]),
+    recentProjects: dedupeProjects([
+      ...(existing?.recentProjects ?? []),
+      ...newProjects,
+    ]),
+  };
+
   await db()
     .insert(profileCards)
     .values({
       candidateId: session.candidateId,
-      name: input.name,
-      title: input.title,
-      yearsExperience: input.yearsExperience,
-      location: input.location,
-      summary: input.summary,
-      ticketsAndCards: input.ticketsAndCards ?? [],
-      recentProjects: input.recentProjects ?? [],
+      ...merged,
     })
     .onConflictDoUpdate({
       target: profileCards.candidateId,
-      set: {
-        name: input.name,
-        title: input.title,
-        yearsExperience: input.yearsExperience,
-        location: input.location,
-        summary: input.summary,
-        ticketsAndCards: input.ticketsAndCards ?? [],
-        recentProjects: input.recentProjects ?? [],
-        updatedAt: new Date(),
-      },
+      set: { ...merged, updatedAt: new Date() },
     });
-  console.log(`[extract] saved profile for ${sessionId}`);
+  console.log(
+    `[extract] merged profile for ${sessionId}` +
+      ` (name=${merged.name || "—"} title=${merged.title || "—"}` +
+      ` years=${merged.yearsExperience}` +
+      ` tickets=${merged.ticketsAndCards.length}` +
+      ` projects=${merged.recentProjects.length})`,
+  );
 
   // Send the candidate the SMS link to view their profile + matches.
   // Skip if there's no usable profile (test calls etc.).
@@ -271,12 +311,12 @@ export async function extractProfile(sessionId: string): Promise<void> {
     .where(eq(candidates.id, session.candidateId))
     .limit(1)
     .then((r) => r[0]?.phone);
-  if (candidatePhone && (input.summary || input.name || input.title)) {
+  if (candidatePhone && (merged.summary || merged.name || merged.title)) {
     const url = buildProfileUrl({
       sessionId,
       token: signSessionToken(sessionId),
     });
-    const greeting = input.name ? `Hi ${input.name}!` : "Hi!";
+    const greeting = merged.name ? `Hi ${merged.name}!` : "Hi!";
     await sendSms({
       to: candidatePhone,
       body: `${greeting} Thanks for the call with Gig-grab. Your profile + matches: ${url}`,
@@ -286,4 +326,39 @@ export async function extractProfile(sessionId: string): Promise<void> {
       `[extract] skipping SMS for ${sessionId} (no usable profile or phone)`,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers used by the merge logic above.
+// ---------------------------------------------------------------------------
+
+function dedupeStrings(xs: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of xs) {
+    const t = (x ?? "").trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
+function dedupeProjects(xs: ProfileProject[]): ProfileProject[] {
+  const out: ProfileProject[] = [];
+  const seen = new Set<string>();
+  for (const p of xs) {
+    if (!p) continue;
+    const role = (p.role ?? "").trim();
+    const company = (p.company ?? "").trim();
+    const period = (p.period ?? "").trim();
+    if (!role && !company) continue; // empty placeholder
+    const key = `${role.toLowerCase()}|${company.toLowerCase()}|${period.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ role, company, period, description: (p.description ?? "").trim() });
+  }
+  return out;
 }
