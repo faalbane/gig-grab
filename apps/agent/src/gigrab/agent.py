@@ -16,6 +16,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
@@ -216,6 +217,45 @@ class TranscriptDbWriter(FrameProcessor):
                 self._ai_buffer.append(chunk)
 
 
+def _format_profile_snapshot(p: dict) -> str:
+    """Render a profile_card row as a compact LLM-friendly snapshot."""
+    bits: list[str] = []
+    name = (p.get("name") or "").strip()
+    title = (p.get("title") or "").strip()
+    years = p.get("years_experience") or 0
+    location = (p.get("location") or "").strip()
+    summary = (p.get("summary") or "").strip()
+    tickets = p.get("tickets_and_cards") or []
+    projects = p.get("recent_projects") or []
+    if name:
+        bits.append(f"Name: {name}")
+    if title:
+        bits.append(f"Trade: {title}")
+    if isinstance(years, (int, float)) and years > 0:
+        bits.append(f"Years experience: {int(years)}")
+    if location:
+        bits.append(f"Location: {location}")
+    if summary:
+        bits.append(f"Summary: {summary}")
+    if tickets:
+        bits.append("Tickets & cards: " + ", ".join(str(t) for t in tickets))
+    if projects:
+        proj_lines = []
+        for proj in projects[:3]:
+            if not isinstance(proj, dict):
+                continue
+            role = (proj.get("role") or "").strip()
+            company = (proj.get("company") or "").strip()
+            period = (proj.get("period") or "").strip()
+            head = " — ".join([x for x in (role, company) if x])
+            tail = f" ({period})" if period else ""
+            if head:
+                proj_lines.append(f"- {head}{tail}")
+        if proj_lines:
+            bits.append("Recent projects:\n" + "\n".join(proj_lines))
+    return "\n".join(bits) if bits else "(profile exists but is empty)"
+
+
 def _clean_ai_text(s: str) -> str:
     """Tighten LLM streaming output for human display.
 
@@ -254,6 +294,10 @@ class AgentConfig:
     inbound: bool = False  # True for hotline calls (no web form pre-fill)
     surface: str = "phone"  # "phone" (Twilio Media Streams, 8kHz mu-law) or
                             # "web" (browser mic, 16kHz int16 PCM)
+    # Existing profile_card for the candidate, if any. Populated by main.py
+    # before the pipeline starts. Lets the kickoff branch into a "welcome
+    # back" path for returning callers.
+    existing_profile: Optional[dict] = None
 
 
 async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig):
@@ -286,6 +330,31 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     # attempts produced no LLM call and no Cartesia connect.
     context = LLMContext()
     context.add_message({"role": "system", "content": SYSTEM_PROMPT})
+
+    # Returning-caller awareness: bake the existing profile into the
+    # system context as a structured snapshot, so the LLM can greet by
+    # name, offer to read it back, or pick up where the candidate left off.
+    if cfg.existing_profile:
+        snap = _format_profile_snapshot(cfg.existing_profile)
+        context.add_message(
+            {
+                "role": "system",
+                "content": (
+                    "RETURNING CANDIDATE — they've talked to GigGrab before. "
+                    "Their existing profile on file:\n"
+                    f"{snap}\n\n"
+                    "Behaviour:\n"
+                    "• Greet them BY NAME and acknowledge they're back.\n"
+                    "• Offer three options in one short sentence: update "
+                    "their profile, hear what's on file, or just add new "
+                    "details.\n"
+                    "• Never re-ask things you already know unless they "
+                    "say something has changed.\n"
+                    "• If they ask you to read it back, summarise the snapshot "
+                    "above in two sentences max."
+                ),
+            }
+        )
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
@@ -333,11 +402,22 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     @transport.event_handler("on_client_connected")
     async def _on_connect(t, client):
         logger.info(
-            f"[agent] on_client_connected fired (session={cfg.session_id} inbound={cfg.inbound})"
+            f"[agent] on_client_connected fired (session={cfg.session_id} inbound={cfg.inbound} returning={bool(cfg.existing_profile)})"
         )
-        if cfg.inbound:
-            # Hotline caller — we don't know their preferred language yet
-            # because they didn't fill the web form. First turn asks.
+        if cfg.existing_profile:
+            # Returning candidate — we know who they are. Greet by name,
+            # offer the three options, let them pick. The system message
+            # already loaded the snapshot.
+            name = (cfg.existing_profile.get("name") or "").strip()
+            named = name if name else "there"
+            kickoff = (
+                f"This caller already has a profile on file. Greet them by "
+                f"name in ONE short sentence (≤14 words): say "
+                f"'Welcome back, {named} — want to update your profile, hear "
+                f"what's on file, or add something new?' Nothing else."
+            )
+        elif cfg.inbound:
+            # Hotline caller, first time — language unknown.
             kickoff = (
                 "An inbound caller just dialled GigGrab's hotline. "
                 "Greet them in English in ONE short sentence (≤14 words): "

@@ -107,6 +107,27 @@ async def fetch_session(session_id: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+async def fetch_profile_for_session(session_id: str) -> Optional[dict]:
+    """Returns the profile_card joined to the session's candidate.
+
+    None if the session has no candidate or that candidate has no profile
+    yet (first call ever)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT pc.candidate_id, pc.name, pc.title, pc.years_experience,
+                   pc.location, pc.summary, pc.tickets_and_cards,
+                   pc.recent_projects, pc.updated_at
+            FROM sessions s
+            JOIN profile_cards pc ON pc.candidate_id = s.candidate_id
+            WHERE s.id = $1
+            """,
+            session_id,
+        )
+        return dict(row) if row else None
+
+
 async def store_match_signals(
     *, candidate_id: str, signals: dict
 ) -> None:

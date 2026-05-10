@@ -94,13 +94,23 @@ async def _web_ws_handler(websocket: WebSocket):
         await websocket.close(code=4404)
         return
 
+    existing_profile = None
+    try:
+        existing_profile = await db.fetch_profile_for_session(session_id)
+    except Exception:
+        logger.exception("web-ws failed to look up existing profile (non-fatal)")
+
     cfg = AgentConfig(
         session_id=session_id,
         language=language,
         audience=audience,
         surface="web",
+        existing_profile=existing_profile,
     )
-    logger.info(f"web-ws session start: session={session_id} lang={language}")
+    logger.info(
+        f"web-ws session start: session={session_id} lang={language} "
+        f"returning={bool(existing_profile)}"
+    )
     try:
         await run_web_agent(websocket, cfg)
     except WebSocketDisconnect:
@@ -160,14 +170,22 @@ async def _ws_handler(websocket: WebSocket):
         await websocket.close(code=4400)
         return
 
+    existing_profile = None
+    try:
+        existing_profile = await db.fetch_profile_for_session(session_id)
+    except Exception:
+        logger.exception("ws failed to look up existing profile (non-fatal)")
+
     cfg = AgentConfig(
         session_id=session_id,
         language=language,
         audience=audience,
         inbound=inbound,
+        existing_profile=existing_profile,
     )
     logger.info(
-        f"ws session start: session={session_id} stream={stream_sid} lang={language} inbound={inbound}"
+        f"ws session start: session={session_id} stream={stream_sid} lang={language} "
+        f"inbound={inbound} returning={bool(existing_profile)}"
     )
     try:
         await run_agent(websocket, cfg, stream_sid=stream_sid)
