@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
-import { CvPreview } from "@/components/profile/CvPreview";
+import { EditableCvCard } from "@/components/profile/EditableCvCard";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
 import { IconPhone, IconBolt } from "@/components/marketing/hotline/icons";
 import type { ProfileCard } from "@/lib/types";
@@ -113,7 +113,14 @@ export default function DashboardPage() {
             </p>
           )}
 
-          {tab === "profile" && <ProfileTab me={me} />}
+          {tab === "profile" && (
+            <ProfileTab
+              me={me}
+              onProfileUpdated={(next) =>
+                setMe((prev) => (prev ? { ...prev, profile: next } : prev))
+              }
+            />
+          )}
           {tab === "jobs" && <JobsTab onBackToProfile={() => setTab("profile")} />}
         </div>
       </main>
@@ -146,7 +153,13 @@ function TabButton({
   );
 }
 
-function ProfileTab({ me }: { me: AccountMe | null }) {
+function ProfileTab({
+  me,
+  onProfileUpdated,
+}: {
+  me: AccountMe | null;
+  onProfileUpdated: (next: ProfileCard) => void;
+}) {
   if (!me) {
     return (
       <div
@@ -193,7 +206,11 @@ function ProfileTab({ me }: { me: AccountMe | null }) {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <CvPreview card={me.profile} email={me.candidate.email ?? undefined} />
+      <EditableCvCard
+        card={me.profile}
+        email={me.candidate.email ?? undefined}
+        onUpdated={onProfileUpdated}
+      />
     </div>
   );
 }

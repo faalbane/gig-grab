@@ -2,7 +2,13 @@ import { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import { getAuth } from "firebase-admin/auth";
-import { db, candidates, sessions, profileCards } from "@gig-grab/db";
+import {
+  db,
+  candidates,
+  sessions,
+  profileCards,
+  type ProfileProject,
+} from "@gig-grab/db";
 import { eq } from "drizzle-orm";
 import { signSessionToken } from "./security";
 
@@ -28,6 +34,115 @@ async function findCandidateByUid(uid: string) {
     .where(eq(candidates.firebaseUid, uid))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * PUT /api/account/profile — auth-gated partial update of the signed-in
+ * candidate's profile_card. Body accepts any subset of:
+ *   name, title, yearsExperience, location, summary,
+ *   ticketsAndCards (string[]), recentProjects (ProfileProject[]).
+ *
+ * Untouched fields are preserved. If no profile_card row exists yet, we
+ * upsert one with the candidate's id. Returns the merged row so the UI
+ * can swap the local state with the canonical version.
+ */
+export async function accountProfileUpdate(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const candidate = await findCandidateByUid(auth.uid);
+  if (!candidate) {
+    res.status(404).json({ error: "no candidate row" });
+    return;
+  }
+
+  const body = (req.body ?? {}) as {
+    name?: string;
+    title?: string;
+    yearsExperience?: number;
+    location?: string;
+    summary?: string;
+    ticketsAndCards?: string[];
+    recentProjects?: ProfileProject[];
+  };
+
+  const clean = (v: unknown): string =>
+    typeof v === "string" ? v.replace(/\s+$/, "").slice(0, 2000) : "";
+  const cleanArr = (xs: unknown): string[] =>
+    Array.isArray(xs)
+      ? xs
+          .map((x) => clean(x))
+          .filter((x) => x.length > 0)
+          .slice(0, 50)
+      : [];
+  const cleanProjects = (xs: unknown): ProfileProject[] => {
+    if (!Array.isArray(xs)) return [];
+    return xs
+      .map((p): ProfileProject | null => {
+        if (!p || typeof p !== "object") return null;
+        const obj = p as Record<string, unknown>;
+        const role = clean(obj.role);
+        const company = clean(obj.company);
+        const period = clean(obj.period);
+        const description = clean(obj.description);
+        if (!role && !company) return null;
+        return { role, company, period, description };
+      })
+      .filter((p): p is ProfileProject => p !== null)
+      .slice(0, 20);
+  };
+
+  const [existing] = await db()
+    .select()
+    .from(profileCards)
+    .where(eq(profileCards.candidateId, candidate.id))
+    .limit(1);
+
+  const merged = {
+    name:
+      "name" in body ? clean(body.name) : (existing?.name ?? ""),
+    title:
+      "title" in body ? clean(body.title) : (existing?.title ?? ""),
+    yearsExperience:
+      typeof body.yearsExperience === "number" && body.yearsExperience >= 0
+        ? Math.floor(body.yearsExperience)
+        : (existing?.yearsExperience ?? 0),
+    location:
+      "location" in body
+        ? clean(body.location)
+        : (existing?.location ?? ""),
+    summary:
+      "summary" in body ? clean(body.summary) : (existing?.summary ?? ""),
+    ticketsAndCards:
+      "ticketsAndCards" in body
+        ? cleanArr(body.ticketsAndCards)
+        : (existing?.ticketsAndCards ?? []),
+    recentProjects:
+      "recentProjects" in body
+        ? cleanProjects(body.recentProjects)
+        : (existing?.recentProjects ?? []),
+  };
+
+  await db()
+    .insert(profileCards)
+    .values({ candidateId: candidate.id, ...merged })
+    .onConflictDoUpdate({
+      target: profileCards.candidateId,
+      set: { ...merged, updatedAt: new Date() },
+    });
+
+  res.json({
+    profile: {
+      candidateId: candidate.id,
+      ...merged,
+      updatedAt: new Date(),
+    },
+  });
 }
 
 /** GET /api/account/me — return the signed-in candidate's profile bits. */

@@ -16,6 +16,7 @@ import { sessionCvPdf } from "./cv-pdf";
 import { authLink } from "./auth";
 import {
   accountMe,
+  accountProfileUpdate,
   accountPhoneStart,
   accountPhoneConfirm,
   accountWebCallStart,
@@ -138,6 +139,13 @@ export const api = onRequest(
       }
       if (method === "GET" && path === "/account/me") {
         await accountMe(req, res);
+        return;
+      }
+      if (
+        (method === "PUT" || method === "PATCH") &&
+        path === "/account/profile"
+      ) {
+        await accountProfileUpdate(req, res);
         return;
       }
       if (method === "POST" && path === "/account/phone/start") {
