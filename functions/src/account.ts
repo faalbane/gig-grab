@@ -214,7 +214,7 @@ export async function accountPhoneConfirm(
     return;
   }
 
-  // Find or claim the candidate row, then write the verified phone.
+  // Find the candidate row the signed-in uid is currently bound to.
   const [existing] = await db()
     .select()
     .from(candidates)
@@ -225,17 +225,45 @@ export async function accountPhoneConfirm(
     return;
   }
 
-  // If another candidate already has this phone, refuse to overwrite.
+  // Does another row already own this phone (typically from a prior
+  // hotline call before the user ever signed in)?
   const [collide] = await db()
-    .select({ id: candidates.id, firebaseUid: candidates.firebaseUid })
+    .select()
     .from(candidates)
     .where(eq(candidates.phone, phone))
     .limit(1);
+
   if (collide && collide.id !== existing.id) {
-    res.status(409).json({ error: "phone already linked to another account" });
+    if (collide.firebaseUid && collide.firebaseUid !== auth.uid) {
+      // Someone else's account — refuse.
+      res
+        .status(409)
+        .json({ error: "phone already linked to another account" });
+      return;
+    }
+
+    // Unclaimed (or already ours) → MERGE. The collide row is the prior
+    // hotline row carrying profile_card + sessions; the existing row is
+    // the stub created at sign-in. Claim the hotline row with this uid
+    // (carrying over email if the stub had one and it didn't), then
+    // delete the stub. profile_cards.candidate_id and sessions.candidate_id
+    // already point at the surviving row, so nothing else to rewrite.
+    await db()
+      .update(candidates)
+      .set({
+        firebaseUid: auth.uid,
+        email: collide.email ?? existing.email ?? undefined,
+      })
+      .where(eq(candidates.id, collide.id));
+    await db().delete(candidates).where(eq(candidates.id, existing.id));
+    console.log(
+      `[account/phone/confirm] merged stub=${existing.id} into hotline=${collide.id} uid=${auth.uid}`,
+    );
+    res.json({ ok: true, phone, merged: true, candidateId: collide.id });
     return;
   }
 
+  // No collide (or collide IS our own row already) → just write phone.
   await db()
     .update(candidates)
     .set({ phone })

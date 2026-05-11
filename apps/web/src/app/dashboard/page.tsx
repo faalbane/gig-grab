@@ -158,6 +158,25 @@ function ProfileTab({ me }: { me: AccountMe | null }) {
     );
   }
 
+  // Stub Google/email row with no phone yet — almost certainly the
+  // signed-in user has prior hotline calls under a different identity
+  // (phone only). Pushing them to /settings to verify their phone
+  // triggers accountPhoneConfirm which merges the unclaimed hotline
+  // row into this account.
+  if (!me.profile && !me.candidate.phone) {
+    return (
+      <EmptyState
+        icon={<IconPhone width={26} height={26} />}
+        title="Link your phone to find prior calls"
+        body="We sign you in by email today, but our hotline knows you by phone. Verify a phone number and we'll merge any prior hotline calls into this account — your CV will appear here automatically."
+        primaryLabel="Verify my phone"
+        primaryHref="/settings"
+        secondaryLabel="Call me now"
+        secondaryHref="/start"
+      />
+    );
+  }
+
   if (!me.profile) {
     return (
       <EmptyState
