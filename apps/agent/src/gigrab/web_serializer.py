@@ -20,23 +20,21 @@ from pipecat.frames.frames import (
     OutputAudioRawFrame,
     StartFrame,
 )
-from pipecat.serializers.base_serializer import (
-    FrameSerializer,
-    FrameSerializerType,
-)
+from pipecat.serializers.base_serializer import FrameSerializer
 
 
 class RawPcm16Serializer(FrameSerializer):
-    """Pipecat <-> browser: 16 kHz mono int16 PCM, binary WS frames."""
+    """Pipecat <-> browser: 16 kHz mono int16 PCM, binary WS frames.
+
+    Newer pipecat versions dropped the FrameSerializerType / `type`
+    property pattern; the transport now infers BINARY vs TEXT from the
+    `serialize()` return type (`bytes` → binary WS frame, `str` → text).
+    """
 
     SAMPLE_RATE = 16000
 
     def __init__(self) -> None:
         super().__init__()
-
-    @property
-    def type(self) -> FrameSerializerType:
-        return FrameSerializerType.BINARY
 
     async def setup(self, frame: StartFrame) -> None:
         # Sample rate is fixed; nothing to negotiate.
