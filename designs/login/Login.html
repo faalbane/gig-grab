@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>GigGrab — Log in</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --gg-green: #0E9F4A;
+    --gg-green-dark: #0A7A38;
+    --gg-green-deep: #074F25;
+    --gg-green-tint: #E8F6EE;
+    --gg-green-tint-2: #F2FAF5;
+    --gg-ink: #0D1B14;
+    --gg-ink-2: #1A2A21;
+    --gg-muted: #5C6E62;
+    --gg-line: #E4ECE6;
+    --gg-line-2: #D7E1D9;
+    --gg-bg: #FBFCFB;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
+  body {
+    font-family: 'Manrope', ui-sans-serif, sans-serif;
+    background:
+      radial-gradient(ellipse at 50% 0%, var(--gg-green-tint-2) 0%, transparent 55%),
+      var(--gg-bg);
+    color: var(--gg-ink);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; cursor: pointer; }
+  input { font-family: inherit; }
+
+  /* faint diagonal pattern */
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: repeating-linear-gradient(135deg, transparent 0 60px, rgba(14,159,74,0.025) 60px 61px);
+  }
+
+  /* top bar */
+  .topbar {
+    position: relative; z-index: 1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 32px;
+  }
+  .logo { display: inline-flex; align-items: center; gap: 10px; }
+  .logo-mark {
+    width: 38px; height: 38px; border-radius: 9px;
+    background: var(--gg-green); color: white;
+    font-weight: 800; display: grid; place-items: center; letter-spacing: -0.02em; font-size: 15px;
+  }
+  .logo-word { font-weight: 800; font-size: 19px; letter-spacing: -0.02em; }
+  .topbar-right { font-size: 14px; color: var(--gg-muted); display: flex; align-items: center; gap: 14px; }
+  .topbar-right a { font-weight: 600; color: var(--gg-ink-2); }
+
+  /* page */
+  .page {
+    position: relative; z-index: 1;
+    display: grid; place-items: center;
+    padding: 32px 24px 64px;
+    min-height: calc(100vh - 86px);
+  }
+
+  /* card */
+  .card {
+    width: 100%; max-width: 440px;
+    background: white;
+    border: 1px solid var(--gg-line);
+    border-radius: 24px;
+    padding: 36px 36px 32px;
+    box-shadow:
+      0 30px 80px -40px rgba(14,40,22,0.22),
+      0 4px 12px rgba(14,40,22,0.04);
+  }
+  @media (max-width: 480px) { .card { padding: 28px 22px 24px; } }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 12px; border-radius: 999px;
+    background: var(--gg-green-tint); color: var(--gg-green-dark);
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-size: 30px; font-weight: 800; letter-spacing: -0.025em; margin: 0 0 8px; line-height: 1.1;
+  }
+  p.intro {
+    color: var(--gg-muted); font-size: 15px; line-height: 1.55; margin: 0 0 26px;
+  }
+
+  /* tabs */
+  .tabs {
+    display: inline-flex; padding: 4px;
+    background: var(--gg-bg); border: 1px solid var(--gg-line);
+    border-radius: 12px; margin-bottom: 18px;
+  }
+  .tab {
+    padding: 8px 16px; border-radius: 9px; border: none; background: transparent;
+    font-size: 13.5px; font-weight: 600; color: var(--gg-muted);
+    display: inline-flex; align-items: center; gap: 7px;
+    transition: all 160ms ease;
+  }
+  .tab.active { background: white; color: var(--gg-ink); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+
+  /* fields */
+  .field-label {
+    display: block; font-size: 12.5px; font-weight: 600;
+    color: var(--gg-ink-2); margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+  .phone-row {
+    display: grid; grid-template-columns: 110px 1fr; gap: 8px;
+  }
+  .field, .phone-row select, .phone-row input {
+    width: 100%; height: 50px;
+    border: 1.5px solid var(--gg-line-2); border-radius: 12px;
+    padding: 0 14px; font-size: 15.5px; outline: none; background: white;
+    color: var(--gg-ink); font-weight: 500;
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  .field:focus, .phone-row select:focus, .phone-row input:focus {
+    border-color: var(--gg-green);
+    box-shadow: 0 0 0 3px rgba(14,159,74,0.15);
+  }
+  .phone-row input { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.02em; }
+
+  /* primary btn */
+  .btn-primary {
+    margin-top: 14px;
+    width: 100%; height: 50px;
+    background: var(--gg-ink); color: white;
+    border: none; border-radius: 12px;
+    font-size: 15.5px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background 120ms, transform 120ms;
+  }
+  .btn-primary:hover { background: #000; }
+  .btn-primary:active { transform: scale(0.99); }
+
+  /* divider */
+  .divider {
+    display: flex; align-items: center; gap: 14px;
+    margin: 22px 0;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em; color: var(--gg-muted); text-transform: uppercase;
+  }
+  .divider::before, .divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--gg-line);
+  }
+
+  /* google */
+  .btn-alt {
+    width: 100%; height: 48px; border: 1.5px solid var(--gg-line-2); background: white;
+    border-radius: 12px; font-size: 14.5px; font-weight: 600; color: var(--gg-ink);
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+    transition: border-color 120ms, background 120ms;
+  }
+  .btn-alt:hover { border-color: var(--gg-ink-2); background: var(--gg-bg); }
+
+  /* hotline footnote */
+  .hotline {
+    margin-top: 22px; padding-top: 20px;
+    border-top: 1px dashed var(--gg-line);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .hotline-icon {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--gg-green-tint); color: var(--gg-green-dark);
+    display: grid; place-items: center; flex-shrink: 0;
+  }
+  .hotline-text { font-size: 13px; color: var(--gg-muted); line-height: 1.4; }
+  .hotline-text strong { display: block; color: var(--gg-ink); font-weight: 700; font-size: 13.5px; margin-bottom: 1px; }
+  .hotline-text a { color: var(--gg-green-dark); font-weight: 600; }
+
+  /* signup line */
+  .signup-line {
+    margin-top: 24px; text-align: center;
+    font-size: 14px; color: var(--gg-muted);
+  }
+  .signup-line a { color: var(--gg-ink); font-weight: 700; }
+  .signup-line a:hover { color: var(--gg-green-dark); }
+
+  /* legal under card */
+  .legal {
+    text-align: center; margin-top: 24px;
+    font-size: 12px; color: var(--gg-muted);
+    max-width: 380px; line-height: 1.55;
+  }
+  .legal a { color: var(--gg-ink-2); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--gg-line-2); }
+
+  /* dialing overlay */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(8,20,12,0.55);
+    backdrop-filter: blur(8px); display: none; place-items: center;
+    padding: 24px; z-index: 50;
+  }
+  .overlay.on { display: grid; }
+  .overlay-card {
+    background: white; border-radius: 22px; padding: 32px;
+    width: min(400px, 100%); text-align: center;
+    box-shadow: 0 30px 80px -20px rgba(0,0,0,0.35);
+  }
+  @keyframes pulseRing {
+    0% { transform: scale(0.85); opacity: 0.55; }
+    100% { transform: scale(2.0); opacity: 0; }
+  }
+  .ring-big {
+    position: relative; width: 88px; height: 88px; margin: 0 auto 18px;
+  }
+  .ring-big > .core {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: var(--gg-green); display: grid; place-items: center; color: white;
+  }
+  .ring-big > span.r {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid var(--gg-green);
+    animation: pulseRing 1.8s ease-out infinite;
+  }
+  .ring-big > span.r2 { animation-delay: 0.6s; }
+
+  /* code input */
+  .code-row {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
+    margin: 18px 0 10px;
+  }
+  .code-row input {
+    height: 56px; text-align: center; font-size: 22px; font-weight: 700;
+    border: 1.5px solid var(--gg-line-2); border-radius: 10px;
+    font-family: 'JetBrains Mono', monospace; outline: none;
+  }
+  .code-row input:focus { border-color: var(--gg-green); box-shadow: 0 0 0 3px rgba(14,159,74,0.15); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="Hotline Home.html" class="logo">
+    <span class="logo-mark">GG</span>
+    <span class="logo-word">GigGrab</span>
+  </a>
+  <div class="topbar-right">
+    <span>New to GigGrab?</span>
+    <a href="Get Started.html">Get started →</a>
+  </div>
+</div>
+
+<div class="page">
+  <div>
+    <div class="card">
+      <div class="eyebrow">Welcome back</div>
+      <h1>Log in to GigGrab</h1>
+      <p class="intro">Pick how you signed up. We'll get you back to your matches.</p>
+
+      <div class="tabs">
+        <button class="tab active" id="tabPhone" onclick="switchTab('phone')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          Phone
+        </button>
+        <button class="tab" id="tabEmail" onclick="switchTab('email')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 7l8 6 8-6"/></svg>
+          Email
+        </button>
+      </div>
+
+      <!-- PHONE PANEL -->
+      <form id="phonePanel" onsubmit="event.preventDefault(); sendCode();">
+        <label class="field-label" for="phone">Phone number</label>
+        <div class="phone-row">
+          <select aria-label="Country">
+            <option>🇺🇸 +1</option>
+            <option>🇬🇧 +44</option>
+            <option>🇪🇸 +34</option>
+            <option>🇫🇷 +33</option>
+            <option>🇩🇪 +49</option>
+            <option>🇮🇳 +91</option>
+            <option>🇵🇹 +351</option>
+            <option>🇮🇹 +39</option>
+            <option>🇳🇱 +31</option>
+          </select>
+          <input id="phone" type="tel" placeholder="(415) 555-1234" autocomplete="tel-national" />
+        </div>
+        <button type="submit" class="btn-primary">
+          Text me a code
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+
+      <!-- EMAIL PANEL -->
+      <form id="emailPanel" style="display:none;" onsubmit="event.preventDefault(); sendLink();">
+        <label class="field-label" for="email">Email address</label>
+        <input id="email" class="field" type="email" placeholder="jake@example.com" autocomplete="email" />
+        <button type="submit" class="btn-primary">
+          Email me a magic link
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+
+      <div class="divider">Or</div>
+
+      <button type="button" class="btn-alt">
+        <svg width="18" height="18" viewBox="0 0 18 18"><path d="M17.64 9.2c0-.64-.05-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.79 2.71v2.26h2.9c1.7-1.56 2.69-3.87 2.69-6.61z" fill="#4285F4"/><path d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.9-2.26c-.81.54-1.83.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.95v2.34A9 9 0 0 0 9 18z" fill="#34A853"/><path d="M3.95 10.7A5.4 5.4 0 0 1 3.66 9c0-.59.1-1.17.29-1.7V4.96H.95A9 9 0 0 0 0 9c0 1.45.35 2.82.95 4.04l3-2.34z" fill="#FBBC05"/><path d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58A9 9 0 0 0 9 0 9 9 0 0 0 .95 4.96l3 2.34C4.66 5.17 6.65 3.58 9 3.58z" fill="#EA4335"/></svg>
+        Continue with Google
+      </button>
+
+      <div class="hotline">
+        <div class="hotline-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </div>
+        <div class="hotline-text">
+          <strong>Or just call the hotline</strong>
+          <span>Dial <a href="tel:+15515534910" class="mono">+1 551 553 4910</a> — we'll match your number.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="legal">
+      By logging in you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>.
+    </div>
+  </div>
+</div>
+
+<!-- Code-entry overlay (after phone) -->
+<div class="overlay" id="codeOverlay">
+  <div class="overlay-card">
+    <div class="ring-big">
+      <div class="core">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 7l8 6 8-6"/></svg>
+      </div>
+      <span class="r"></span>
+      <span class="r r2"></span>
+    </div>
+    <div style="font-size:20px; font-weight:800; letter-spacing:-0.02em;">Check your texts</div>
+    <div class="mono" id="dialed" style="font-size:13px; color:var(--gg-muted); margin-top:6px;"></div>
+    <div class="code-row">
+      <input maxlength="1" />
+      <input maxlength="1" />
+      <input maxlength="1" />
+      <input maxlength="1" />
+      <input maxlength="1" />
+      <input maxlength="1" />
+    </div>
+    <div style="font-size:12.5px; color:var(--gg-muted); margin-top:6px;">Didn't get it? <a href="#" style="color:var(--gg-green-dark); font-weight:600;">Resend in 0:30</a></div>
+    <button onclick="document.getElementById('codeOverlay').classList.remove('on')" style="margin-top:18px; width:100%; padding:11px 22px; background:transparent; color:var(--gg-muted); border:1.5px solid var(--gg-line); border-radius:12px; font-weight:600; cursor:pointer;">Cancel</button>
+  </div>
+</div>
+
+<!-- Magic-link overlay (after email) -->
+<div class="overlay" id="linkOverlay">
+  <div class="overlay-card">
+    <div class="ring-big">
+      <div class="core" style="background:var(--gg-green);">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 7l8 6 8-6"/></svg>
+      </div>
+      <span class="r"></span>
+      <span class="r r2"></span>
+    </div>
+    <div style="font-size:20px; font-weight:800; letter-spacing:-0.02em;">Check your inbox</div>
+    <div style="font-size:13.5px; color:var(--gg-muted); margin-top:8px; line-height:1.5;">We sent a magic link to <span class="mono" id="emailedAddr" style="color:var(--gg-ink); font-weight:600;"></span>. Click it to log in.</div>
+    <button onclick="document.getElementById('linkOverlay').classList.remove('on')" style="margin-top:22px; width:100%; padding:12px 22px; background:var(--gg-ink); color:white; border:none; border-radius:12px; font-weight:700; cursor:pointer;">Got it</button>
+  </div>
+</div>
+
+<script>
+  function switchTab(which){
+    const phone = which === 'phone';
+    document.getElementById('tabPhone').classList.toggle('active', phone);
+    document.getElementById('tabEmail').classList.toggle('active', !phone);
+    document.getElementById('phonePanel').style.display = phone ? '' : 'none';
+    document.getElementById('emailPanel').style.display = phone ? 'none' : '';
+  }
+  function sendCode(){
+    const n = document.getElementById('phone').value || '(415) 555-1234';
+    document.getElementById('dialed').textContent = 'Sent to +1 ' + n;
+    document.getElementById('codeOverlay').classList.add('on');
+    setTimeout(()=> document.querySelector('#codeOverlay .code-row input')?.focus(), 80);
+  }
+  function sendLink(){
+    const e = document.getElementById('email').value || 'jake@example.com';
+    document.getElementById('emailedAddr').textContent = e;
+    document.getElementById('linkOverlay').classList.add('on');
+  }
+  // auto-advance code inputs
+  document.querySelectorAll('#codeOverlay .code-row input').forEach((inp, i, all) => {
+    inp.addEventListener('input', () => { if (inp.value && all[i+1]) all[i+1].focus(); });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !inp.value && all[i-1]) all[i-1].focus(); });
+  });
+</script>
+
+</body>
+</html>
