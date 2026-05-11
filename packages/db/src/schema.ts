@@ -72,6 +72,10 @@ export type CandidateMatchSignals = {
   payCurrency?: "GBP" | "USD" | "EUR" | string;
   shiftPreferences?: string[];
   dealBreakers?: string[];
+  // Cached intent for hotline callers. Set on first call (post-call
+  // transcript classifier) so subsequent calls skip the intent question
+  // and load the right system prompt directly.
+  audience?: "worker" | "employer";
 };
 
 export const candidates = pgTable(

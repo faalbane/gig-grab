@@ -66,10 +66,28 @@ import sys
 import os as _os
 sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from prompts.candidate_interview import (  # type: ignore
-    SYSTEM_PROMPT,
+    SYSTEM_PROMPT as CANDIDATE_SYSTEM_PROMPT,
     render_initial_message,
     CallContext,
 )
+from prompts.employer_intake import (  # type: ignore
+    SYSTEM_PROMPT as EMPLOYER_SYSTEM_PROMPT,
+)
+from prompts.combined_intake import (  # type: ignore
+    SYSTEM_PROMPT as COMBINED_SYSTEM_PROMPT,
+)
+
+
+def _select_system_prompt(audience: str, has_existing_profile: bool) -> str:
+    """Pick the system prompt based on cached audience + whether we already
+    know the caller. Returning callers always know their lane (their
+    existing profile is candidate-only today); unknown inbound callers
+    get the combined prompt that does intent detection first."""
+    if audience == "employer":
+        return EMPLOYER_SYSTEM_PROMPT
+    if audience == "worker" or has_existing_profile:
+        return CANDIDATE_SYSTEM_PROMPT
+    return COMBINED_SYSTEM_PROMPT
 
 from . import db
 
@@ -334,7 +352,15 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     # silently drops LLMRunFrame, which is why our previous kickoff
     # attempts produced no LLM call and no Cartesia connect.
     context = LLMContext()
-    context.add_message({"role": "system", "content": SYSTEM_PROMPT})
+    system_prompt = _select_system_prompt(
+        cfg.audience, has_existing_profile=bool(cfg.existing_profile)
+    )
+    logger.info(
+        f"[agent] system prompt: "
+        f"audience={cfg.audience} returning={bool(cfg.existing_profile)} "
+        f"chose={'candidate' if system_prompt is CANDIDATE_SYSTEM_PROMPT else 'employer' if system_prompt is EMPLOYER_SYSTEM_PROMPT else 'combined'}"
+    )
+    context.add_message({"role": "system", "content": system_prompt})
 
     # Returning-caller awareness: bake the existing profile into the
     # system context as a structured snapshot, so the LLM can greet by
@@ -423,18 +449,31 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
                 f"recorded.' Second sentence: 'Want to update your profile, "
                 f"hear what's on file, or add something new?' Nothing else."
             )
-        elif cfg.inbound:
-            # Hotline caller, first time. UK GDPR Art 13 + ICO call-
-            # recording guidance: notice at point of collection. Twilio
-            # Trust Hub / FCC AI-disclosure best practice: announce AI on
-            # first contact.
+        elif cfg.audience == "employer":
+            # Returning hotline caller previously classified as employer.
+            # Skip intent question entirely; go straight to employer flow.
             kickoff = (
-                "An inbound caller just dialled GigGrab's hotline. Greet "
-                "them in English in TWO short sentences. First sentence: "
-                "'Hi — you've reached GigGrab. This call is recorded and "
-                "handled by our AI recruiter to help build your CV.' Second "
-                "sentence: 'What's your name, and what language would you "
-                "like to speak?' Nothing else."
+                "An employer just dialled GigGrab's hotline — we've "
+                "spoken to them before. Greet them in English in TWO "
+                "short sentences. First sentence: 'Hi — GigGrab here, "
+                "this call is recorded.' Second sentence: 'Who am I "
+                "speaking with, and which role are we working on today?' "
+                "Nothing else."
+            )
+        elif cfg.inbound:
+            # Hotline caller whose intent we don't yet know — combined
+            # prompt handles the branching. UK GDPR Art 13 + ICO call-
+            # recording guidance + Twilio AI-disclosure best practice are
+            # all baked into the disclosure sentence below.
+            kickoff = (
+                "An inbound caller just dialled GigGrab's hotline and we "
+                "don't yet know what they need. Greet them in English in "
+                "TWO short sentences. First sentence: 'Hi — you've "
+                "reached GigGrab, this call is recorded and you're "
+                "talking to an AI recruiter.' Second sentence: 'Are you "
+                "here looking for work, or are you hiring people?' "
+                "Nothing else. Wait for their answer, then branch as the "
+                "system prompt instructs."
             )
         else:
             # Outbound call from /start — caller already ticked consent on

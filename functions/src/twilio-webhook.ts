@@ -6,6 +6,11 @@ import { db, sessions, candidates } from "@gig-grab/db";
 import { eq } from "drizzle-orm";
 import { extractProfile } from "./profile";
 import { extractEmployerJob } from "./employer-extraction";
+import {
+  classifyAudience,
+  persistAudience,
+  maybeFlipSessionKind,
+} from "./intent";
 import { verifyTwilioSignature } from "./security";
 
 /**
@@ -158,18 +163,55 @@ async function applyTwilioStatus(
   }
 
   if (mapped === "completed") {
-    // Route to the right extractor based on session.kind. Look up the row
-    // since Twilio's payload doesn't tell us.
+    // Route to the right extractor based on session.kind + cached
+    // audience. Look up the row since Twilio's payload doesn't tell us.
     const [row] = await db()
-      .select({ kind: sessions.kind })
+      .select({
+        kind: sessions.kind,
+        candidateId: sessions.candidateId,
+      })
       .from(sessions)
       .where(eq(sessions.id, sessionId))
       .limit(1);
+
     if (row?.kind === "employer_intake") {
+      // Already known to be employer (cached or set upfront).
       void extractEmployerJob(sessionId).catch((err) =>
         console.error("[extract:job] failed", err),
       );
+    } else if (row?.candidateId) {
+      // candidate_intake session. Two sub-cases:
+      //   (a) cached audience already known (worker) → run extractProfile
+      //   (b) cached audience unknown → classify transcript, persist,
+      //       then route to correct extractor
+      void (async () => {
+        try {
+          const [cand] = await db()
+            .select({ matchSignals: candidates.matchSignals })
+            .from(candidates)
+            .where(eq(candidates.id, row.candidateId!))
+            .limit(1);
+          const cached = cand?.matchSignals?.audience;
+          let audience: "worker" | "employer";
+          if (cached === "worker" || cached === "employer") {
+            audience = cached;
+          } else {
+            audience = await classifyAudience(sessionId);
+            await persistAudience(row.candidateId!, audience);
+            await maybeFlipSessionKind(sessionId, audience);
+          }
+          if (audience === "employer") {
+            await extractEmployerJob(sessionId);
+          } else {
+            await extractProfile(sessionId);
+          }
+        } catch (err) {
+          console.error("[extract] dispatch failed", err);
+        }
+      })();
     } else {
+      // Session has no candidate (shouldn't happen post-inbound, but be
+      // defensive). Default to candidate extraction.
       void extractProfile(sessionId).catch((err) =>
         console.error("[extract:profile] failed", err),
       );
@@ -216,7 +258,11 @@ export async function twilioInbound(
   }
 
   // Upsert candidate by phone. If they've called before (or onboarded via
-  // the web flow), we re-attach to the existing row.
+  // the web flow), we re-attach to the existing row. We use a candidates
+  // row even for employer callers because phone is our universal cache
+  // key for "have we seen this number before + what's their intent" —
+  // the actual employer record (employers table) is built post-call by
+  // extractEmployerJob from the transcript.
   const [candidate] = await db()
     .insert(candidates)
     .values({ id: randomUUID(), phone: from, language: "en" })
@@ -226,12 +272,23 @@ export async function twilioInbound(
     })
     .returning();
 
-  // Default the session language to English. The agent will ask in the
-  // first turn what language the candidate prefers.
+  // Read cached audience from match_signals (set by the post-call
+  // classifier the first time someone called). If we don't know yet,
+  // audience="unknown" → agent uses the combined intake prompt and asks
+  // intent on the call.
+  const cachedAudience: "worker" | "employer" | "unknown" =
+    candidate.matchSignals?.audience ?? "unknown";
+
+  // Default session.kind to candidate_intake. If the cached audience is
+  // employer we know upfront; otherwise the post-call classifier flips
+  // session.kind if the transcript indicates an employer call.
+  const sessionKind: "candidate_intake" | "employer_intake" =
+    cachedAudience === "employer" ? "employer_intake" : "candidate_intake";
+
   const sessionId = randomUUID();
   await db().insert(sessions).values({
     id: sessionId,
-    kind: "candidate_intake",
+    kind: sessionKind,
     candidateId: candidate.id,
     language: "en",
     status: "ringing",
@@ -249,8 +306,10 @@ export async function twilioInbound(
   }
 
   // Mirror the outbound /twilio/voice TwiML — same agent, same protocol.
-  // We also tell the agent this is an inbound leg via a parameter so its
-  // first turn can ask for the candidate's language preference.
+  // audience tells the agent which system prompt to load:
+  //   worker   → candidate_interview prompt
+  //   employer → employer_intake prompt
+  //   unknown  → combined_intake prompt (asks intent on first turn)
   const apiBase =
     process.env.PUBLIC_API_URL ??
     "https://api-353215144615.europe-west2.run.app";
@@ -258,7 +317,7 @@ export async function twilioInbound(
   const stream = connect.stream({ url: wsBase });
   stream.parameter({ name: "sessionId", value: sessionId });
   stream.parameter({ name: "language", value: "en" });
-  stream.parameter({ name: "audience", value: "worker" });
+  stream.parameter({ name: "audience", value: cachedAudience });
   stream.parameter({ name: "inbound", value: "1" });
 
   // Tell Twilio to POST status updates for this call to the per-session
