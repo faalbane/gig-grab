@@ -82,7 +82,7 @@ function AuthCardInner() {
       const conf = await startPhoneSignIn(e164);
       setConfirmation(conf);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't send the code.");
+      setError(friendlyAuthError(err) ?? "Couldn't send the code.");
     } finally {
       setBusy(null);
     }
@@ -99,7 +99,11 @@ function AuthCardInner() {
       await postAuthLink(token, candidateId);
       window.location.href = "/dashboard";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Code didn't match.");
+      setError(
+        friendlyAuthError(err) ??
+          "That code didn't match. Double-check the SMS and try again.",
+      );
+      setCode("");
       setBusy(null);
     }
   }
@@ -203,12 +207,32 @@ function AuthCardInner() {
                 type="text"
                 inputMode="numeric"
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                onChange={(e) => {
+                  setCode(e.target.value.replace(/\D/g, ""));
+                  if (error) setError(null);
+                }}
                 placeholder="123456"
                 required
+                autoFocus
+                aria-invalid={Boolean(error)}
                 className="mono h-[50px] w-full rounded-xl border-[1.5px] px-3.5 text-center text-xl tracking-[0.4em] outline-none"
-                style={{ borderColor: "var(--gg-line-2)" }}
+                style={{
+                  borderColor: error ? "#E63946" : "var(--gg-line-2)",
+                  boxShadow: error ? "0 0 0 3px rgba(230,57,70,0.15)" : undefined,
+                }}
               />
+              {error && (
+                <p
+                  className="rounded-md px-3 py-2 text-sm"
+                  style={{
+                    background: "rgba(230,57,70,0.08)",
+                    color: "#9B1C29",
+                  }}
+                  role="alert"
+                >
+                  {error}
+                </p>
+              )}
               <button
                 type="submit"
                 disabled={!/^\d{4,8}$/.test(code) || busy !== null}
@@ -223,6 +247,7 @@ function AuthCardInner() {
                 onClick={() => {
                   setConfirmation(null);
                   setCode("");
+                  setError(null);
                 }}
                 className="w-full text-xs hover:underline"
                 style={{ color: "var(--gg-muted)" }}
@@ -336,11 +361,21 @@ function AuthCardInner() {
         </>
       )}
 
-      {/* Invisible reCAPTCHA target — required by Firebase phone auth. */}
+      {/* Invisible reCAPTCHA target — required by Firebase phone auth.
+          Phone-OTP errors render inline above the Verify button; this
+          block catches errors from the Email + Google paths that don't
+          have their own inline slot. */}
       <div id="phone-auth-recaptcha" />
 
-      {error && (
-        <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+      {error && !(tab === "phone" && confirmation) && (
+        <p
+          className="mt-4 rounded-md px-3 py-2 text-sm"
+          style={{
+            background: "rgba(230,57,70,0.08)",
+            color: "#9B1C29",
+          }}
+          role="alert"
+        >
           {error}
         </p>
       )}
@@ -360,6 +395,37 @@ function AuthCardInner() {
       </p>
     </div>
   );
+}
+
+/** Map Firebase Auth error codes to user-friendly text. Returns null for
+ * errors we don't recognise so the caller can fall back to a sensible
+ * default. */
+function friendlyAuthError(err: unknown): string | null {
+  const code = (err as { code?: string })?.code ?? "";
+  switch (code) {
+    case "auth/invalid-verification-code":
+      return "That code didn't match. Check the SMS and try again.";
+    case "auth/code-expired":
+      return "The code expired. Tap 'Use a different number' to request a new one.";
+    case "auth/missing-verification-code":
+      return "Please enter the 6-digit code from the SMS.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please wait a minute and try again.";
+    case "auth/invalid-phone-number":
+      return "That phone number doesn't look right.";
+    case "auth/quota-exceeded":
+      return "We've hit our SMS quota for now. Please try again shortly.";
+    case "auth/network-request-failed":
+      return "Network error — check your connection and try again.";
+    case "auth/popup-closed-by-user":
+      return "Sign-in window closed before we could finish.";
+    case "auth/cancelled-popup-request":
+      return null; // benign — user cancelled, no need to alarm
+    case "auth/account-exists-with-different-credential":
+      return "That email is already linked to a different sign-in method.";
+    default:
+      return null;
+  }
 }
 
 function TabButton({

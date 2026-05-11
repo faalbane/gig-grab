@@ -110,9 +110,6 @@ export function CvPreview({ card, email, sessionId, token }: Props) {
             </Section>
           )}
 
-          <button className="text-left text-sm text-emerald-700 hover:text-emerald-800">
-            + Add section
-          </button>
         </div>
       )}
     </section>
