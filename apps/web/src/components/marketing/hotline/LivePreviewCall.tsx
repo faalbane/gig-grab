@@ -107,10 +107,11 @@ export function LivePreviewCall({ mode }: { mode: Mode }) {
         </div>
       </div>
 
-      {/* Transcript */}
+      {/* Transcript — fixed height so cycling animations don't push the
+          rest of the panel up/down on every tick. */}
       <div
         className="flex flex-col gap-2.5 px-4.5 pb-1 pt-4.5"
-        style={{ maxHeight: 240, overflow: "hidden" }}
+        style={{ height: 240, overflow: "hidden" }}
       >
         {shownMessages.map((m, i) => (
           <div

@@ -53,7 +53,7 @@ export function HotlineHero({ mode }: Props) {
             <ModeToggle mode={mode} />
           </div>
 
-          <div className="grid items-center gap-12 lg:grid-cols-[1.15fr_1fr] lg:gap-16">
+          <div className="grid items-start gap-12 lg:grid-cols-[1.15fr_1fr] lg:gap-16">
             <div>
               <div
                 className="mono mb-5 inline-flex items-center gap-2 rounded-full border bg-white px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider"
