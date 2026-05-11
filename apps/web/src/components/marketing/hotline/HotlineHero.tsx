@@ -210,7 +210,7 @@ function PhoneDialer({
 }) {
   const digits = number.split("");
   return (
-    <div className="relative">
+    <div className="relative" style={{ containerType: "inline-size" }}>
       <div
         className="mono mb-3 flex items-center gap-2.5 text-xs font-medium uppercase tracking-widest"
         style={{
@@ -228,7 +228,14 @@ function PhoneDialer({
         />
         {label}
       </div>
-      <div className="flex flex-wrap items-baseline gap-1.5 leading-none">
+      {/* Digits sized via container queries so the number always fits on
+          one line of the card it's drawn in — cqi = % of the card's
+          inline (horizontal) size. clamp() floor/ceiling caps it on
+          very small / very wide screens. */}
+      <div
+        className="flex items-baseline gap-1.5 leading-none"
+        style={{ whiteSpace: "nowrap" }}
+      >
         {digits.map((d, i) => {
           const isSep = d === " " || d === "-";
           return (
@@ -236,7 +243,9 @@ function PhoneDialer({
               key={i}
               className="mono font-bold"
               style={{
-                fontSize: isSep ? 48 : 64,
+                fontSize: isSep
+                  ? "clamp(20px, 6cqi, 48px)"
+                  : "clamp(28px, 8.2cqi, 64px)",
                 color: isSep ? "var(--gg-line-2)" : "var(--gg-ink)",
                 letterSpacing: "-0.04em",
                 fontVariantNumeric: "tabular-nums",
