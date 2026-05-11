@@ -291,6 +291,80 @@ pnpm --filter @gig-grab/functions verify-caller "+1XXXXXXXXXX" "Their name"
 
 ---
 
+## Production domain cutover runbook
+
+When the cofounders register the production domain (e.g. `gig-grab.com`), follow this runbook to move web + auth + Twilio to the new origin without downtime. `gig-grab.web.app` keeps serving in parallel, so there's no flag day — but every system that holds a base URL must be updated together to avoid signature / CORS / OAuth-redirect mismatches.
+
+### Required inputs (gather before starting)
+
+- **Domain** — e.g. `gig-grab.com`
+- **Registrar** — Namecheap / Cloudflare / GoDaddy / Squarespace (the DNS console you'll be pasting records into)
+- **Apex + `www` policy** — usually both served; Firebase auto-redirects `www` → apex
+- **Email plan** — Google Workspace / Cloudflare Email Routing / Fastmail (for `privacy@` + `hello@` mailboxes referenced in `/legal/privacy` + `/legal/terms`)
+
+### Phase A — Firebase Hosting custom domain + SSL
+
+1. Firebase Console → Hosting → Add custom domain → enter `gig-grab.com`. Firebase shows a TXT verification record plus the final A / AAAA records.
+2. Paste TXT into registrar DNS; verification ~5 min.
+3. Repeat for `www.gig-grab.com`; configure redirect `www` → apex.
+4. Wait for SSL cert issuance (up to 24h, often <1h).
+5. Verify with `curl -I https://gig-grab.com/` — expect 200 from Firebase Hosting once cert lands.
+
+### Phase B — Firebase Auth + OAuth providers (BEFORE flipping any env)
+
+6. Firebase Console → Authentication → Settings → Authorized domains → add `gig-grab.com`, `www.gig-grab.com`.
+7. Google Cloud Console → APIs & Credentials → OAuth 2.0 Client ID used by Firebase:
+   - Authorized JavaScript origins: add `https://gig-grab.com`, `https://www.gig-grab.com`
+   - Authorized redirect URIs: add `https://gig-grab.com/__/auth/handler`, `https://www.gig-grab.com/__/auth/handler`
+8. Microsoft Azure AD app registration → Authentication → Redirect URIs: add the same `/__/auth/handler` URLs.
+9. OAuth consent screen (Google Cloud Console) → App homepage + Privacy Policy + Terms of Service → point to new domain.
+
+### Phase C — App env + functions
+
+10. `apps/web/.env.local` (and any CI build env): set `NEXT_PUBLIC_APP_URL=https://gig-grab.com`.
+11. Functions: update the `APP_BASE_URL` secret/env used by `buildProfileUrl` (`functions/src/sms.ts`) and the SMS body.
+12. CORS allowlist in `functions/src/cors.ts` (or wherever the allowed-origins set lives): add `https://gig-grab.com` and `https://www.gig-grab.com`. Keep `gig-grab.web.app` during transition.
+13. Rebuild + redeploy web (`firebase deploy --only hosting`) and functions (`firebase deploy --only functions`).
+
+### Phase D — Twilio
+
+14. Twilio Console → Phone Numbers → hotline number → Voice & Fax:
+    - A CALL COMES IN: `https://gig-grab.com/api/twilio/inbound` (HTTP POST)
+    - CALL STATUS CHANGES: `https://gig-grab.com/api/twilio/inbound-status` (HTTP POST)
+15. `verifyTwilioSignature` in `functions/src/security.ts` already checks 4 URL candidates (api/web base × raw/stripped path). Confirm both `gig-grab.web.app` and `gig-grab.com` are in the candidate set so signatures validate during transition.
+16. Trust Hub Customer Profile — re-submit with new brand URL. Required before US A2P 10DLC at volume.
+
+### Phase E — Render agent
+
+No change. Twilio Media Streams dials `wss://gig-grab.onrender.com/ws` directly; the customer-facing domain doesn't touch it.
+
+### Phase F — Email (DNS + mailboxes)
+
+17. MX records at registrar → Google Workspace / Cloudflare Email Routing / Fastmail.
+18. Add SPF (`v=spf1 include:_spf.google.com ~all` for Workspace), DKIM (provider-issued TXT), DMARC (`v=DMARC1; p=quarantine; rua=mailto:dmarc@gig-grab.com`).
+19. Create `privacy@gig-grab.com` + `hello@gig-grab.com` — both referenced in `/legal/privacy` + `/legal/terms`.
+
+### Phase G — Doc + memory hygiene
+
+20. Update the URL table at the top of this file (`Web app`, `API (Cloud Functions v2)`) to point at the new domain.
+21. Update `CLAUDE.md` if any base URL is hard-coded there.
+22. Update `LAST_UPDATED` and any URL references in `apps/web/src/app/legal/privacy/page.tsx` + `apps/web/src/app/legal/terms/page.tsx`.
+
+### Verification checklist (post-cutover)
+
+- [ ] `https://gig-grab.com/` serves the web app
+- [ ] `https://gig-grab.com/api/health` returns 200
+- [ ] Google sign-in works from `https://gig-grab.com/auth` without redirect-URI error
+- [ ] Microsoft sign-in works from `https://gig-grab.com/auth`
+- [ ] Phone-link sign-in succeeds (Twilio Verify SMS arrives)
+- [ ] Outbound intake call from `/start` connects + transcript writes to DB
+- [ ] Inbound hotline call validates Twilio signature against new domain
+- [ ] SMS-after-call link points at `https://gig-grab.com/profile/...`
+- [ ] PDF download works at `https://gig-grab.com/api/sessions/:id/cv.pdf?token=...`
+- [ ] `gig-grab.web.app` still works (parallel-serving, no downtime)
+
+---
+
 ## Documentation index
 
 - `SPEC.md` — product + engineering spec (data model, flows, phased plan)
