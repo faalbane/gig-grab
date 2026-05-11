@@ -1,154 +1,317 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
-import { MatchCard } from "@/components/dashboard/MatchCard";
-import { AutoApplyCard } from "@/components/dashboard/AutoApplyCard";
-import { ProfileStatsCard } from "@/components/dashboard/ProfileStatsCard";
-import type { Match } from "@/lib/types";
+import { CvPreview } from "@/components/profile/CvPreview";
+import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
+import { IconPhone, IconBolt } from "@/components/marketing/hotline/icons";
+import type { ProfileCard } from "@/lib/types";
 
-const SAMPLE_MATCHES: Match[] = [
-  {
-    id: "sample-1",
-    jobTitle: "Senior Product Designer",
-    employer: "Northwind Labs",
-    detail: "Remote · Full-time · Start ASAP",
-    pay: "£75k",
-    matchPct: 98,
-    whyRanked: "9 yrs B2B SaaS · Figma + prototyping · remote-ready",
-  },
-  {
-    id: "sample-2",
-    jobTitle: "Registered Nurse — A&E",
-    employer: "Mercy NHS Trust",
-    detail: "Leeds · Permanent",
-    pay: "£36k",
-    matchPct: 95,
-    whyRanked: "NMC PIN · 6 yrs A&E · willing to do nights",
-  },
-  {
-    id: "sample-3",
-    jobTitle: "Site Carpenter (1st/2nd fix)",
-    employer: "Bayford Build",
-    detail: "Manchester · 12-week fit-out",
-    pay: "£220/day",
-    matchPct: 92,
-    whyRanked: "12 yrs · CSCS Gold · led teams of 6 · available in 1 week",
-  },
-  {
-    id: "sample-4",
-    jobTitle: "Customer Success Manager",
-    employer: "Loop AI",
-    detail: "London / Hybrid · Permanent",
-    pay: "£45k",
-    matchPct: 89,
-    whyRanked: "B2B SaaS · enterprise CS · 4 yrs",
-  },
-];
+type Tab = "profile" | "jobs";
 
-const FILTER_CHIPS = [
-  "Any role",
-  "Remote or UK",
-  "Start in 2 weeks",
-  "Full-time",
-];
+type AccountMe = {
+  candidate: {
+    id: string;
+    phone: string | null;
+    email: string | null;
+    language: string;
+  };
+  profile: ProfileCard | null;
+};
 
-function DashboardInner() {
-  const params = useSearchParams();
-  const candidateId = params.get("candidate") ?? params.get("candidateId");
-  const [matches, setMatches] = useState<Match[]>(SAMPLE_MATCHES);
-  const [name, setName] = useState<string>("there");
-  const [stats, setStats] = useState<{
-    profileStrength: number;
-    newMatchesToday: number;
-    recruitersViewed: number;
-  }>({ profileStrength: 92, newMatchesToday: 14, recruitersViewed: 8 });
+const HOTLINE = process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910";
+
+export default function DashboardPage() {
+  const user = useAuthUser();
+  const [tab, setTab] = useState<Tab>("profile");
+  const [me, setMe] = useState<AccountMe | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!candidateId) return;
+    if (user === null) return; // pending
+    if (user === false) {
+      window.location.href = "/auth";
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/candidates/${candidateId}/dashboard`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        if (data.matches?.length) setMatches(data.matches);
-        if (data.candidate?.name) setName(data.candidate.name);
-        if (data.stats) setStats(data.stats);
-      } catch {
-        // keep sample data
+        const data = await fetchWithAuth<AccountMe>("/api/account/me");
+        if (!cancelled) setMe(data);
+      } catch (e) {
+        if (!cancelled) {
+          setErr(e instanceof Error ? e.message : "Could not load your account.");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [candidateId]);
+  }, [user]);
+
+  if (user === null) {
+    return <FullPageLoading />;
+  }
+  if (user === false) {
+    return null;
+  }
+
+  const name = me?.profile?.name?.split(" ")[0] || "there";
 
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-7xl px-6 py-10">
-        <div className="flex items-baseline justify-between">
-          <div>
-            <p className="text-sm text-gray-500">Welcome back</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-gray-900">
-              Top matches for you · <span className="text-gray-700">{name}</span>
+      <main
+        className="flex-1"
+        style={{
+          background:
+            "radial-gradient(ellipse at 50% 0%, var(--gg-green-tint-2) 0%, transparent 45%), var(--gg-bg)",
+        }}
+      >
+        <div className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
+          <div className="mb-6">
+            <p
+              className="mono text-xs font-semibold uppercase"
+              style={{
+                color: "var(--gg-green-dark)",
+                letterSpacing: "0.14em",
+              }}
+            >
+              Welcome back
+            </p>
+            <h1
+              className="m-0 mt-1.5 text-3xl font-extrabold tracking-tight sm:text-[34px]"
+              style={{ color: "var(--gg-ink)" }}
+            >
+              Hi {name} — let&apos;s pick up where you left off.
             </h1>
           </div>
-        </div>
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <input
-            type="text"
-            placeholder="Search jobs by role, location, employer…"
-            className="w-full max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-          />
-          <div className="flex flex-wrap gap-2">
-            {FILTER_CHIPS.map((c, i) => (
-              <button
-                key={c}
-                className={`rounded-full border px-3 py-1 text-xs ${
-                  i === 0
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
-          <div className="space-y-3">
-            {matches.map((m) => (
-              <MatchCard key={m.id} match={m} />
-            ))}
-          </div>
-          <div className="space-y-4">
-            <AutoApplyCard />
-            <ProfileStatsCard
-              profileStrength={stats.profileStrength}
-              newMatchesToday={stats.newMatchesToday}
-              recruitersViewed={stats.recruitersViewed}
+          <div
+            className="mb-7 inline-flex rounded-xl border p-1"
+            style={{
+              background: "var(--gg-bg)",
+              borderColor: "var(--gg-line)",
+            }}
+          >
+            <TabButton
+              active={tab === "profile"}
+              onClick={() => setTab("profile")}
+              label="My profile"
+            />
+            <TabButton
+              active={tab === "jobs"}
+              onClick={() => setTab("jobs")}
+              label="Jobs"
             />
           </div>
+
+          {err && (
+            <p className="mb-6 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {err}
+            </p>
+          )}
+
+          {tab === "profile" && <ProfileTab me={me} />}
+          {tab === "jobs" && <JobsTab onBackToProfile={() => setTab("profile")} />}
         </div>
       </main>
     </>
   );
 }
 
-export default function DashboardPage() {
+function TabButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
   return (
-    <Suspense
-      fallback={
-        <div className="px-6 py-20 text-center text-gray-400">Loading…</div>
-      }
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg px-5 py-2 text-sm font-semibold transition-all"
+      style={{
+        background: active ? "white" : "transparent",
+        color: active ? "var(--gg-ink)" : "var(--gg-muted)",
+        boxShadow: active ? "0 1px 3px rgba(0,0,0,0.06)" : undefined,
+      }}
     >
-      <DashboardInner />
-    </Suspense>
+      {label}
+    </button>
+  );
+}
+
+function ProfileTab({ me }: { me: AccountMe | null }) {
+  if (!me) {
+    return (
+      <div
+        className="rounded-2xl border bg-white p-10 text-center text-sm"
+        style={{ borderColor: "var(--gg-line)", color: "var(--gg-muted)" }}
+      >
+        Loading your profile…
+      </div>
+    );
+  }
+
+  if (!me.profile) {
+    return (
+      <EmptyState
+        icon={<IconPhone width={26} height={26} />}
+        title="Let's build your profile"
+        body="We don't have a profile on file yet. Talk to our AI for two minutes — by phone or browser mic — and we'll generate one from the conversation."
+        primaryLabel="Call me now"
+        primaryHref="/start"
+        secondaryLabel="Use my microphone"
+        secondaryHref="/voice"
+      />
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <CvPreview card={me.profile} email={me.candidate.email ?? undefined} />
+    </div>
+  );
+}
+
+function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
+  return (
+    <div
+      className="rounded-3xl border bg-white p-10 text-center sm:p-14"
+      style={{
+        borderColor: "var(--gg-line)",
+        boxShadow:
+          "0 30px 80px -50px rgba(14,40,22,0.18), 0 2px 6px rgba(14,40,22,0.04)",
+      }}
+    >
+      <div
+        className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full"
+        style={{
+          background: "var(--gg-green-tint)",
+          color: "var(--gg-green-dark)",
+        }}
+      >
+        <IconBolt width={26} height={26} />
+      </div>
+      <h2
+        className="m-0 mb-3 text-2xl font-extrabold tracking-tight"
+        style={{ color: "var(--gg-ink)" }}
+      >
+        Jobs are on the way
+      </h2>
+      <p
+        className="mx-auto mb-7 max-w-md text-[15px] leading-relaxed"
+        style={{ color: "var(--gg-muted)" }}
+      >
+        We&apos;re connecting employers right now — live, vetted roles will
+        start surfacing here over the coming days. We&apos;ll text you the
+        moment your first matches drop. Please check back soon.
+      </p>
+      <div className="flex flex-wrap justify-center gap-3">
+        <button
+          type="button"
+          onClick={onBackToProfile}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
+          style={{ background: "var(--gg-green)" }}
+        >
+          Update your profile
+        </button>
+        <a
+          href={`tel:${HOTLINE.replace(/\s/g, "")}`}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
+          style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+        >
+          <IconPhone width={16} height={16} /> Hotline {HOTLINE}
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({
+  icon,
+  title,
+  body,
+  primaryLabel,
+  primaryHref,
+  secondaryLabel,
+  secondaryHref,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  primaryLabel: string;
+  primaryHref: string;
+  secondaryLabel: string;
+  secondaryHref: string;
+}) {
+  return (
+    <div
+      className="rounded-3xl border bg-white p-10 text-center sm:p-14"
+      style={{
+        borderColor: "var(--gg-line)",
+        boxShadow:
+          "0 30px 80px -50px rgba(14,40,22,0.18), 0 2px 6px rgba(14,40,22,0.04)",
+      }}
+    >
+      <div
+        className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full"
+        style={{
+          background: "var(--gg-green-tint)",
+          color: "var(--gg-green-dark)",
+        }}
+      >
+        {icon}
+      </div>
+      <h2
+        className="m-0 mb-3 text-2xl font-extrabold tracking-tight"
+        style={{ color: "var(--gg-ink)" }}
+      >
+        {title}
+      </h2>
+      <p
+        className="mx-auto mb-7 max-w-md text-[15px] leading-relaxed"
+        style={{ color: "var(--gg-muted)" }}
+      >
+        {body}
+      </p>
+      <div className="flex flex-wrap justify-center gap-3">
+        <Link
+          href={primaryHref}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
+          style={{ background: "var(--gg-green)" }}
+        >
+          {primaryLabel}
+        </Link>
+        <Link
+          href={secondaryHref}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
+          style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+        >
+          {secondaryLabel}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function FullPageLoading() {
+  return (
+    <>
+      <Header />
+      <main
+        className="flex-1"
+        style={{ background: "var(--gg-bg)", color: "var(--gg-muted)" }}
+      >
+        <div className="grid min-h-[50vh] place-items-center text-sm">
+          Loading…
+        </div>
+      </main>
+    </>
   );
 }

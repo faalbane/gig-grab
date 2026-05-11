@@ -2,7 +2,7 @@ import { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import { getAuth } from "firebase-admin/auth";
-import { db, candidates, sessions } from "@gig-grab/db";
+import { db, candidates, sessions, profileCards } from "@gig-grab/db";
 import { eq } from "drizzle-orm";
 import { signSessionToken } from "./security";
 
@@ -42,6 +42,11 @@ export async function accountMe(req: Request, res: Response): Promise<void> {
     res.status(404).json({ error: "no candidate row" });
     return;
   }
+  const [card] = await db()
+    .select()
+    .from(profileCards)
+    .where(eq(profileCards.candidateId, row.id))
+    .limit(1);
   res.json({
     candidate: {
       id: row.id,
@@ -49,6 +54,19 @@ export async function accountMe(req: Request, res: Response): Promise<void> {
       email: row.email ?? null,
       language: row.language,
     },
+    profile: card
+      ? {
+          candidateId: card.candidateId,
+          name: card.name,
+          title: card.title,
+          yearsExperience: card.yearsExperience,
+          location: card.location,
+          summary: card.summary,
+          ticketsAndCards: card.ticketsAndCards ?? [],
+          recentProjects: card.recentProjects ?? [],
+          updatedAt: card.updatedAt,
+        }
+      : null,
   });
 }
 
