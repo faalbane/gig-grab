@@ -1,17 +1,35 @@
 import type { Metadata } from "next";
+import { Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
+const manrope = Manrope({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-manrope",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "Gig-grab — Speak it. Match it. Get hired.",
+  title: "GigGrab — Call this number. Get a job today.",
   description:
-    "Voice-first AI hiring agent. No CV. No forms. Just a quick voice chat with our AI recruiter — in any language — and we'll match you to live jobs.",
+    "Voice-first hiring hotline. Talk to our AI for 2 minutes — in any language — and we'll match you to live jobs. Employers brief by voice and get ranked candidates within the hour.",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html
+      lang="en"
+      className={`${manrope.variable} ${jetbrainsMono.variable} h-full antialiased`}
+    >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

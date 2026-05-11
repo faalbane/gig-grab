@@ -1,26 +1,60 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #FBFCFB;
+  --foreground: #0D1B14;
+
+  /* GigGrab palette — matches designs/Gig Grab/app.jsx */
+  --gg-green: #0E9F4A;
+  --gg-green-dark: #0A7A38;
+  --gg-green-deep: #074F25;
+  --gg-green-tint: #E8F6EE;
+  --gg-green-tint-2: #F2FAF5;
+  --gg-ink: #0D1B14;
+  --gg-ink-2: #1A2A21;
+  --gg-muted: #5C6E62;
+  --gg-line: #E4ECE6;
+  --gg-line-2: #D7E1D9;
+  --gg-bg: #FBFCFB;
+  --gg-card: #FFFFFF;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular",
+    Menlo, monospace;
+}
+
+/* Animations used by the Hotline landing */
+@keyframes pulseRing {
+  0% { transform: scale(0.9); opacity: 0.55; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+@keyframes glowDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes typingDots {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+@keyframes slideUp {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes wave {
+  0%, 100% { height: 8px; }
+  50% { height: 28px; }
 }
