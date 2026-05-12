@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo } from "./Logo";
+import { LocaleBadge } from "./LocaleBadge";
 
 export function Footer() {
   return (
@@ -45,9 +46,7 @@ export function Footer() {
       <div className="border-t border-gray-100">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5 text-sm text-gray-500">
           <p>© 2026 GigGrab Ltd. All rights reserved.</p>
-          <button className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900">
-            🌐 English (UK)
-          </button>
+          <LocaleBadge />
         </div>
       </div>
     </footer>
