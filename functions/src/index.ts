@@ -20,6 +20,7 @@ import {
   accountPhoneStart,
   accountPhoneConfirm,
   accountWebCallStart,
+  sessionExtractSnapshot,
 } from "./account";
 import {
   jobsIngestAdzuna,
@@ -150,6 +151,13 @@ export const api = onRequest(
       );
       if (cvPdfMatch && method === "GET") {
         await sessionCvPdf(req, res, cvPdfMatch[1]);
+        return;
+      }
+      const snapshotMatch = path.match(
+        /^\/sessions\/([0-9a-f-]{36})\/extract-snapshot$/,
+      );
+      if (snapshotMatch && method === "POST") {
+        await sessionExtractSnapshot(req, res, snapshotMatch[1]);
         return;
       }
       if (method === "POST" && path === "/auth/link") {

@@ -54,6 +54,15 @@ export function VoiceCallView() {
   const controllerRef = useRef<VoiceCallController | null>(null);
   const [me, setMe] = useState<AccountMe | null>(null);
   const startedAtRef = useRef<number>(0);
+  // Live-snapshot bookkeeping. We trigger a server-side re-extract every
+  // SNAPSHOT_TURN_DELTA new transcript turns, debounced so two snapshots
+  // can't fire within SNAPSHOT_COOLDOWN_MS. Costs ~1 Anthropic call each
+  // time but keeps the CV pane updating in near-real-time during the
+  // call.
+  const lastSnapshotTurnCountRef = useRef<number>(0);
+  const lastSnapshotAtRef = useRef<number>(0);
+  const SNAPSHOT_TURN_DELTA = 6;
+  const SNAPSHOT_COOLDOWN_MS = 8000;
 
   // Initial /account/me fetch so the CV pane has something to show.
   useEffect(() => {
@@ -101,6 +110,37 @@ export function VoiceCallView() {
     };
   }, [session, phase]);
 
+  // In-call snapshot loop. When the live transcript grows past the
+  // configured delta and the cooldown has elapsed, ask the server to
+  // re-run extractProfile on the current turns and then re-pull
+  // /account/me so the CV pane updates. This is what makes the CV
+  // appear to update in real time as the candidate talks.
+  useEffect(() => {
+    if (phase !== "live" || !session) return;
+    const grew = turns.length - lastSnapshotTurnCountRef.current;
+    const cooled = Date.now() - lastSnapshotAtRef.current >= SNAPSHOT_COOLDOWN_MS;
+    if (grew < SNAPSHOT_TURN_DELTA || !cooled) return;
+    lastSnapshotTurnCountRef.current = turns.length;
+    lastSnapshotAtRef.current = Date.now();
+    let cancelled = false;
+    (async () => {
+      try {
+        await fetchWithAuth(
+          `/api/sessions/${session.sessionId}/extract-snapshot`,
+          { method: "POST" },
+        );
+        if (cancelled) return;
+        const data = await fetchWithAuth<AccountMe>("/api/account/me");
+        if (!cancelled) setMe(data);
+      } catch {
+        // benign — next snapshot tick will retry
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [turns.length, phase, session]);
+
   // After the call ends, poll /account/me a few times to pick up the
   // freshly-extracted profile_card. extractProfile runs server-side
   // from the session status callback; we wait up to ~30s.
@@ -136,6 +176,8 @@ export function VoiceCallView() {
     setError(null);
     setTurns([]);
     sinceRef.current = 0;
+    lastSnapshotTurnCountRef.current = 0;
+    lastSnapshotAtRef.current = 0;
     setPhase("starting");
     try {
       const j = await fetchWithAuth<StartResponse>(
@@ -223,35 +265,89 @@ export function VoiceCallView() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_minmax(0,440px)]">
-      {/* LEFT — call control + transcript */}
-      <div className="space-y-4">
-        <CallControlCard
-          phase={phase}
-          onStart={start}
-          onStop={stop}
-          error={error}
-        />
-        <TranscriptCard
-          phase={phase}
-          turns={turns}
-        />
-      </div>
+    <div className="space-y-4">
+      {/* Cross-page nav back to the main dashboard. Same pattern used
+          on every profile-adjacent view so users always know how to
+          jump back to Profile + Jobs without hunting in the header. */}
+      <DashboardCrumb />
 
-      {/* RIGHT — CV preview */}
-      <div>
-        <CvPreview
-          card={me?.profile ?? null}
-          email={me?.candidate.email ?? undefined}
-        />
-        {phase === "ended" && (
-          <p
-            className="mt-3 text-center text-xs"
-            style={{ color: "var(--gg-muted)" }}
-          >
-            Refreshing your CV from the call…
-          </p>
-        )}
+      <div className="grid gap-6 lg:grid-cols-[1fr_minmax(0,440px)]">
+        {/* LEFT — call control + transcript */}
+        <div className="space-y-4">
+          <CallControlCard
+            phase={phase}
+            onStart={start}
+            onStop={stop}
+            error={error}
+          />
+          <TranscriptCard
+            phase={phase}
+            turns={turns}
+          />
+        </div>
+
+        {/* RIGHT — CV preview */}
+        <div>
+          <CvPreview
+            card={me?.profile ?? null}
+            email={me?.candidate.email ?? undefined}
+          />
+          {phase === "live" && (
+            <p
+              className="mt-3 text-center text-[11.5px]"
+              style={{ color: "var(--gg-muted)" }}
+            >
+              CV refreshes as you talk.
+            </p>
+          )}
+          {phase === "ended" && (
+            <p
+              className="mt-3 text-center text-xs"
+              style={{ color: "var(--gg-muted)" }}
+            >
+              Refreshing your CV from the call…
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardCrumb() {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <Link
+        href="/dashboard"
+        className="inline-flex h-9 items-center gap-2 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+        style={{
+          borderColor: "var(--gg-line-2)",
+          color: "var(--gg-ink-2)",
+        }}
+      >
+        ← Dashboard
+      </Link>
+      <div className="flex gap-1.5">
+        <Link
+          href="/dashboard"
+          className="inline-flex h-9 items-center rounded-lg px-3 text-xs font-semibold"
+          style={{
+            background: "var(--gg-bg)",
+            color: "var(--gg-ink-2)",
+          }}
+        >
+          My profile
+        </Link>
+        <Link
+          href="/dashboard?tab=jobs"
+          className="inline-flex h-9 items-center rounded-lg px-3 text-xs font-semibold"
+          style={{
+            background: "var(--gg-bg)",
+            color: "var(--gg-ink-2)",
+          }}
+        >
+          Jobs
+        </Link>
       </div>
     </div>
   );
@@ -410,8 +506,18 @@ function TranscriptCard({
   phase: Phase;
   turns: Turn[];
 }) {
-  if (phase === "idle") return null;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const rows = dedupe(turns);
+  // Auto-scroll the transcript pane to the latest turn whenever new turns
+  // arrive. Snaps to bottom so the user always sees the active exchange
+  // without having to manually scroll the inner panel.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [rows.length]);
+
+  if (phase === "idle") return null;
   return (
     <div
       className="rounded-2xl border bg-white"
@@ -435,6 +541,7 @@ function TranscriptCard({
         </span>
       </header>
       <div
+        ref={scrollRef}
         className="space-y-2 overflow-y-auto px-4 py-3"
         style={{ maxHeight: 420 }}
       >

@@ -10,8 +10,8 @@ import {
   type ProfileProject,
 } from "@gig-grab/db";
 import { eq, asc } from "drizzle-orm";
-import { sendSms, buildProfileUrl } from "./sms";
-import { signSessionToken } from "./security";
+// sms helpers retained in repo but no longer used by extractProfile —
+// the post-call outro instructs callers to log in at gitgrab.io.
 
 const PROFILE_EXTRACTION_PROMPT = `You are an expert at distilling a candidate intake call into a structured profile that will appear on a recruiter-facing CV. Read the transcript and produce ONE JSON object matching the schema.
 
@@ -304,29 +304,11 @@ export async function extractProfile(sessionId: string): Promise<void> {
       ` projects=${merged.recentProjects.length})`,
   );
 
-  // Send the candidate the SMS link to view their profile + matches.
-  // Skip if there's no usable profile (test calls etc.).
-  const candidatePhone = await db()
-    .select({ phone: candidates.phone })
-    .from(candidates)
-    .where(eq(candidates.id, session.candidateId))
-    .limit(1)
-    .then((r) => r[0]?.phone);
-  if (candidatePhone && (merged.summary || merged.name || merged.title)) {
-    const url = buildProfileUrl({
-      sessionId,
-      token: signSessionToken(sessionId),
-    });
-    const greeting = merged.name ? `Hi ${merged.name}!` : "Hi!";
-    await sendSms({
-      to: candidatePhone,
-      body: `${greeting} Thanks for the call with Gig-grab. Your profile + matches: ${url}`,
-    });
-  } else {
-    console.log(
-      `[extract] skipping SMS for ${sessionId} (no usable profile or phone)`,
-    );
-  }
+  // Post-call SMS link removed — the new outro tells callers to log on
+  // to gitgrab.io with their phone number instead. Phone-OTP sign-in
+  // (accountPhoneConfirm) merges the hotline candidate row into the
+  // signed-in account, which is the same merge the SMS link used to
+  // skip via the session HMAC token.
 }
 
 // ---------------------------------------------------------------------------

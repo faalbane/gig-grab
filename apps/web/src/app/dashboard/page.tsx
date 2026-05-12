@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Header } from "@/components/marketing/Header";
 import { EditableCvCard } from "@/components/profile/EditableCvCard";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
@@ -23,8 +24,18 @@ type AccountMe = {
 const HOTLINE = process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910";
 
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={<FullPageLoading />}>
+      <DashboardPageInner />
+    </Suspense>
+  );
+}
+
+function DashboardPageInner() {
   const user = useAuthUser();
-  const [tab, setTab] = useState<Tab>("profile");
+  const params = useSearchParams();
+  const initialTab: Tab = params.get("tab") === "jobs" ? "jobs" : "profile";
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [me, setMe] = useState<AccountMe | null>(null);
   const [err, setErr] = useState<string | null>(null);
 

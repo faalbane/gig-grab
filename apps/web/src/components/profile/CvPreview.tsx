@@ -79,9 +79,19 @@ export function CvPreview({ card, email, sessionId, token }: Props) {
               .filter(Boolean);
             return tickets.length > 0 ? (
               <Section heading="Credentials">
-                <ul className="grid gap-1 text-sm text-gray-800 sm:grid-cols-2">
+                <ul className="flex flex-wrap gap-2">
                   {tickets.map((t) => (
-                    <li key={t}>{t}</li>
+                    <li
+                      key={t}
+                      className="inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-semibold"
+                      style={{
+                        background: "var(--gg-green-tint-2)",
+                        borderColor: "var(--gg-green-tint)",
+                        color: "var(--gg-green-deep)",
+                      }}
+                    >
+                      {t}
+                    </li>
                   ))}
                 </ul>
               </Section>

@@ -105,6 +105,43 @@ async function ensureCandidateForUid(auth: AuthCtx) {
 }
 
 /**
+ * POST /api/sessions/:id/extract-snapshot — run extractProfile mid-call
+ * so the /voice CV preview updates in near-real-time as the candidate
+ * speaks. Auth: Firebase bearer, plus the session must belong to the
+ * signed-in candidate so users can't trigger Anthropic calls on
+ * someone else's session.
+ */
+export async function sessionExtractSnapshot(
+  req: Request,
+  res: Response,
+  sessionId: string,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const candidate = await ensureCandidateForUid(auth);
+  const [s] = await db()
+    .select({ candidateId: sessions.candidateId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  if (!s || s.candidateId !== candidate.id) {
+    res.status(403).json({ error: "not your session" });
+    return;
+  }
+  try {
+    const { extractProfile } = await import("./profile");
+    await extractProfile(sessionId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[snapshot-extract] failed", err);
+    res.status(500).json({ error: "extract failed" });
+  }
+}
+
+/**
  * PUT /api/account/profile — auth-gated partial update of the signed-in
  * candidate's profile_card. Body accepts any subset of:
  *   name, title, yearsExperience, location, summary,
