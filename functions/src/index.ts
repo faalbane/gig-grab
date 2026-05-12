@@ -21,6 +21,10 @@ import {
   accountPhoneConfirm,
   accountWebCallStart,
 } from "./account";
+import {
+  jobsIngestAdzuna,
+  accountJobsList,
+} from "./jobs-ingest-adzuna";
 
 initializeApp();
 
@@ -158,6 +162,14 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/account/web-call/start") {
         await accountWebCallStart(req, res);
+        return;
+      }
+      if (method === "GET" && path === "/account/jobs") {
+        await accountJobsList(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/jobs/ingest/adzuna") {
+        await jobsIngestAdzuna(req, res);
         return;
       }
       res.status(404).json({ error: "not found", path });

@@ -215,57 +215,193 @@ function ProfileTab({
   );
 }
 
+type JobRow = {
+  id: string;
+  title: string;
+  company: string | null;
+  location: string;
+  pay: string | null;
+  shiftPattern: string | null;
+  source: string | null;
+  applyUrl: string | null;
+  createdAt: string;
+};
+
 function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
-  return (
-    <div
-      className="rounded-3xl border bg-white p-10 text-center sm:p-14"
-      style={{
-        borderColor: "var(--gg-line)",
-        boxShadow:
-          "0 30px 80px -50px rgba(14,40,22,0.18), 0 2px 6px rgba(14,40,22,0.04)",
-      }}
-    >
+  const [jobs, setJobs] = useState<JobRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchWithAuth<{ jobs: JobRow[] }>(
+          "/api/account/jobs?limit=20",
+        );
+        if (!cancelled) setJobs(data.jobs ?? []);
+      } catch (e) {
+        if (!cancelled) {
+          setErr(e instanceof Error ? e.message : "Couldn't load jobs.");
+          setJobs([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (jobs === null) {
+    return (
       <div
-        className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full"
+        className="rounded-2xl border bg-white p-10 text-center text-sm"
+        style={{ borderColor: "var(--gg-line)", color: "var(--gg-muted)" }}
+      >
+        Loading jobs…
+      </div>
+    );
+  }
+
+  if (jobs.length === 0) {
+    return (
+      <div
+        className="rounded-3xl border bg-white p-10 text-center sm:p-14"
         style={{
-          background: "var(--gg-green-tint)",
-          color: "var(--gg-green-dark)",
+          borderColor: "var(--gg-line)",
+          boxShadow:
+            "0 30px 80px -50px rgba(14,40,22,0.18), 0 2px 6px rgba(14,40,22,0.04)",
         }}
       >
-        <IconBolt width={26} height={26} />
-      </div>
-      <h2
-        className="m-0 mb-3 text-2xl font-extrabold tracking-tight"
-        style={{ color: "var(--gg-ink)" }}
-      >
-        Jobs are on the way
-      </h2>
-      <p
-        className="mx-auto mb-7 max-w-md text-[15px] leading-relaxed"
-        style={{ color: "var(--gg-muted)" }}
-      >
-        We&apos;re connecting employers right now — live, vetted roles will
-        start surfacing here over the coming days. We&apos;ll text you the
-        moment your first matches drop. Please check back soon.
-      </p>
-      <div className="flex flex-wrap justify-center gap-3">
-        <button
-          type="button"
-          onClick={onBackToProfile}
-          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
-          style={{ background: "var(--gg-green)" }}
+        <div
+          className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full"
+          style={{
+            background: "var(--gg-green-tint)",
+            color: "var(--gg-green-dark)",
+          }}
         >
-          Update your profile
-        </button>
+          <IconBolt width={26} height={26} />
+        </div>
+        <h2
+          className="m-0 mb-3 text-2xl font-extrabold tracking-tight"
+          style={{ color: "var(--gg-ink)" }}
+        >
+          Jobs are on the way
+        </h2>
+        <p
+          className="mx-auto mb-7 max-w-md text-[15px] leading-relaxed"
+          style={{ color: "var(--gg-muted)" }}
+        >
+          {err ??
+            "We're connecting employers right now — live, vetted roles will start surfacing here shortly. Please check back soon."}
+        </p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={onBackToProfile}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
+            style={{ background: "var(--gg-green)" }}
+          >
+            Update your profile
+          </button>
+          <a
+            href={`tel:${HOTLINE.replace(/\s/g, "")}`}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
+            style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+          >
+            <IconPhone width={16} height={16} /> Hotline {HOTLINE}
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div
+        className="mb-4 flex items-center justify-between gap-3 rounded-xl border p-3.5"
+        style={{
+          background: "var(--gg-green-tint-2)",
+          borderColor: "var(--gg-line)",
+        }}
+      >
+        <p
+          className="m-0 text-sm"
+          style={{ color: "var(--gg-ink-2)" }}
+        >
+          <strong>To apply, call our hotline.</strong> Tell our AI which
+          role and we&apos;ll route you straight to the right person.
+        </p>
         <a
           href={`tel:${HOTLINE.replace(/\s/g, "")}`}
-          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
-          style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+          className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white"
+          style={{ background: "var(--gg-green)" }}
         >
-          <IconPhone width={16} height={16} /> Hotline {HOTLINE}
+          <IconPhone width={13} height={13} /> {HOTLINE}
         </a>
       </div>
+      <div className="space-y-3">
+        {jobs.map((j) => (
+          <JobCard key={j.id} job={j} />
+        ))}
+      </div>
     </div>
+  );
+}
+
+function JobCard({ job }: { job: JobRow }) {
+  return (
+    <article
+      className="rounded-2xl border bg-white p-5"
+      style={{ borderColor: "var(--gg-line)" }}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3
+            className="m-0 text-[17px] font-bold tracking-tight"
+            style={{ color: "var(--gg-ink)" }}
+          >
+            {job.title}
+          </h3>
+          <p
+            className="mt-0.5 text-sm"
+            style={{ color: "var(--gg-ink-2)" }}
+          >
+            {[job.company, job.location].filter(Boolean).join(" · ")}
+          </p>
+          <p
+            className="mt-1.5 mono text-xs"
+            style={{ color: "var(--gg-muted)", letterSpacing: "0.04em" }}
+          >
+            {[job.pay, job.shiftPattern, job.source ? `via ${job.source}` : null]
+              .filter(Boolean)
+              .join(" · ") || "—"}
+          </p>
+        </div>
+        <div className="flex flex-shrink-0 gap-2">
+          <a
+            href={`tel:${HOTLINE.replace(/\s/g, "")}`}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white"
+            style={{ background: "var(--gg-green)" }}
+          >
+            <IconPhone width={13} height={13} /> Call to apply
+          </a>
+          {job.applyUrl && (
+            <a
+              href={job.applyUrl}
+              target="_blank"
+              rel="noreferrer nofollow"
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+              style={{
+                borderColor: "var(--gg-line-2)",
+                color: "var(--gg-ink)",
+              }}
+            >
+              Listing ↗
+            </a>
+          )}
+        </div>
+      </div>
+    </article>
   );
 }
 
