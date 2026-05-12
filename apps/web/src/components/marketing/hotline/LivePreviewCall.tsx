@@ -6,28 +6,28 @@ import { IconPhone } from "./icons";
 type Mode = "worker" | "employer";
 
 const WORKER_MATCHES = [
-  { role: "Site Carpenter", org: "Bayford Build", loc: "Manchester", pay: "£220/day", match: 98 },
-  { role: "Registered Nurse", org: "Mercy NHS Trust", loc: "Leeds", pay: "£36k", match: 96 },
-  { role: "Sous Chef", org: "Otto & Pearl", loc: "Bristol · fine dining", pay: "£32k", match: 94 },
+  { role: "Framing Carpenter", org: "Madsen Builders", loc: "Austin, TX", pay: "$34/hr", match: 98 },
+  { role: "Registered Nurse", org: "Mercy Health", loc: "Cincinnati, OH", pay: "$42/hr", match: 96 },
+  { role: "Sous Chef", org: "Otto & Pearl", loc: "Brooklyn, NY · fine dining", pay: "$68k", match: 94 },
 ];
 
 const RECRUITER_MATCHES = [
-  { role: "Marcus T. — Site Carpenter", org: "12 yrs · Gold CSCS", loc: "Manchester", pay: "£220/day", match: 98 },
-  { role: "Priya R. — Product Designer", org: "9 yrs · ex-Spotify", loc: "Remote", pay: "£72k", match: 96 },
-  { role: "Daniel K. — Sous Chef", org: "8 yrs · fine dining", loc: "Bristol", pay: "£32k", match: 94 },
+  { role: "Marcus T. — Framing Carpenter", org: "12 yrs · OSHA-30", loc: "Austin, TX", pay: "$34/hr", match: 98 },
+  { role: "Priya R. — Product Designer", org: "9 yrs · ex-Spotify", loc: "Remote", pay: "$145k", match: 96 },
+  { role: "Daniel K. — Sous Chef", org: "8 yrs · fine dining", loc: "Brooklyn, NY", pay: "$68k", match: 94 },
 ];
 
 const WORKER_SCRIPT = [
   { from: "ai" as const, t: "GigGrab here. What kind of work are you after?" },
-  { from: "user" as const, t: "I'm a carpenter — 12 years on site. Looking around Manchester." },
-  { from: "ai" as const, t: "Got it. Day rate, weekday only, or open to weekends?" },
-  { from: "user" as const, t: "Day rate. Weekdays. £200 minimum." },
-  { from: "ai" as const, t: "Pulling matches… I have 3 live roles above £200, all within 14 miles." },
+  { from: "user" as const, t: "I'm a carpenter — 12 years on site. Looking around Austin." },
+  { from: "ai" as const, t: "Got it. Hourly, weekday only, or open to weekends?" },
+  { from: "user" as const, t: "Hourly. Weekdays. $30 an hour minimum." },
+  { from: "ai" as const, t: "Pulling matches… I have 3 live roles above $30, all within 15 miles." },
 ];
 
 const RECRUITER_SCRIPT = [
   { from: "ai" as const, t: "GigGrab. What role are you filling today?" },
-  { from: "user" as const, t: "Senior Product Designer. Fully remote. Up to £80k." },
+  { from: "user" as const, t: "Senior Product Designer. Fully remote. Up to $160k." },
   { from: "ai" as const, t: "Stack preference? B2B, consumer, or agency background?" },
   { from: "user" as const, t: "B2B SaaS, ideally with growth-stage experience." },
   { from: "ai" as const, t: "Drafting brief. Ranking 412 vetted candidates against it now." },
