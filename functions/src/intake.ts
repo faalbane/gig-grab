@@ -26,15 +26,9 @@ class BadInput extends Error {
 }
 
 function parse(body: IntakeBody) {
-  // Phase 1 only wires the candidate (worker) flow end-to-end. Reject employer
-  // here so we don't silently mis-tag sessions until the employer pipeline ships.
+  // Employer pipeline shipped (combined_intake / employer_intake prompts,
+  // extractEmployerJob, employer-side session.kind). Accept both audiences.
   const audience = body.audience === "employer" ? "employer" : "worker";
-  if (audience === "employer") {
-    throw new BadInput(
-      "Employer intake isn't live yet — coming soon.",
-      400,
-    );
-  }
 
   const phone = (body.phone ?? "").replace(/[^\d+]/g, "");
   if (!E164.test(phone)) {
@@ -125,7 +119,8 @@ export async function intakeStart(req: Request, res: Response): Promise<void> {
   const sessionId = randomUUID();
   await db().insert(sessions).values({
     id: sessionId,
-    kind: "candidate_intake",
+    kind:
+      parsed.audience === "employer" ? "employer_intake" : "candidate_intake",
     candidateId: candidate.id,
     language: parsed.language,
     status: "ringing",

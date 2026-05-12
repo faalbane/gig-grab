@@ -67,10 +67,15 @@ export async function twilioVoice(
   // connect URL AND does NOT promote them to customParameters. Use
   // <Parameter> child elements — Twilio delivers them in the start frame's
   // `start.customParameters` field.
+  // Tell the agent which system prompt to load based on session.kind set
+  // by /intake/start. Employer = employer_intake prompt; otherwise candidate.
+  const audience: "worker" | "employer" =
+    session.kind === "employer_intake" ? "employer" : "worker";
   const connect = twiml.connect();
   const stream = connect.stream({ url: wsBase });
   stream.parameter({ name: "sessionId", value: sessionId });
   stream.parameter({ name: "language", value: session.language ?? "en" });
+  stream.parameter({ name: "audience", value: audience });
   res.type("text/xml").send(twiml.toString());
 }
 
