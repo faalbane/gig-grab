@@ -14,7 +14,7 @@ export const metadata = {
     "How GigGrab collects, uses, and protects personal data when you use our voice-first hiring service.",
 };
 
-const LAST_UPDATED = "2026-05-10";
+const LAST_UPDATED = "2026-05-11";
 
 export default function PrivacyPage() {
   return (
@@ -43,7 +43,7 @@ export default function PrivacyPage() {
                 data processed through our website, hotline, and voice agent.
               </p>
               <p>
-                Contact: <a href="mailto:privacy@gig-grab.com">privacy@gig-grab.com</a>
+                Contact: <a href="mailto:privacy@gitgrab.io">privacy@gitgrab.io</a>
               </p>
             </Section>
 
@@ -225,7 +225,7 @@ export default function PrivacyPage() {
               </ul>
               <p>
                 To exercise any of these, email{" "}
-                <a href="mailto:privacy@gig-grab.com">privacy@gig-grab.com</a>.
+                <a href="mailto:privacy@gitgrab.io">privacy@gitgrab.io</a>.
                 We respond within one month.
               </p>
             </Section>
@@ -268,7 +268,7 @@ export default function PrivacyPage() {
             <Section heading="15. Contact">
               <p>
                 Questions, requests, or complaints:{" "}
-                <a href="mailto:privacy@gig-grab.com">privacy@gig-grab.com</a>.
+                <a href="mailto:privacy@gitgrab.io">privacy@gitgrab.io</a>.
               </p>
               <p>
                 See also our{" "}

@@ -8,8 +8,8 @@ Self-contained guide. Pick this up on any machine with `gcloud`, `firebase`, and
 
 | What | Where | URL |
 |---|---|---|
-| Web app | Firebase Hosting | https://gig-grab.web.app |
-| API (Cloud Functions v2) | Cloud Run · `api` · europe-west2 | https://gig-grab.web.app/api/* (proxy) · https://api-353215144615.europe-west2.run.app (direct, works) |
+| Web app | Firebase Hosting | https://gitgrab.io (primary) · https://gig-grab.web.app (legacy, still serving) |
+| API (Cloud Functions v2) | Cloud Run · `api` · europe-west2 | https://gitgrab.io/api/* (proxy) · https://api-353215144615.europe-west2.run.app (direct, works) |
 | Voice agent (Pipecat) | **Render · `gigrab-agent` · Frankfurt** | https://gig-grab.onrender.com/healthz · WS at wss://gig-grab.onrender.com/ws |
 | Database | Cloud SQL Postgres 16 | `gig-grab:europe-west2:gig-grab-db` (Auth Proxy on :5433) |
 | Object storage | Firebase Storage | `gig-grab.firebasestorage.app` |
@@ -69,7 +69,7 @@ Twilio **strips query strings from the WebSocket connect URL**. When the api bui
 ### Firebase
 
 - **Project:** `gig-grab` (same as GCP)
-- **Hosting site:** `gig-grab.web.app` + `gig-grab.firebaseapp.com`
+- **Hosting site:** `gitgrab.io` (primary, custom domain) + `www.gitgrab.io` (redirect to apex) + `gig-grab.web.app` + `gig-grab.firebaseapp.com` (both legacy, kept serving for fallback)
 - **Web App ID:** `1:353215144615:web:21dae6d708cb55c31db182`
 - **Storage bucket:** `gig-grab.firebasestorage.app`
 - **Auth providers wired in code:** Google (popup), Microsoft (popup), email magic link via `signInWithEmailLink`. **Need to be enabled in Firebase Console manually** before `/auth` works for new users.
@@ -117,7 +117,7 @@ Twilio **strips query strings from the WebSocket connect URL**. When the api bui
 ## Knowledge tree — dependency map
 
 ```
-Browser (https://gig-grab.web.app)
+Browser (https://gitgrab.io  ◀ primary · https://gig-grab.web.app legacy)
   │
   ├── /                        Next.js static page  ← built from apps/web/, deployed to Firebase Hosting
   ├── /hiring, /start, /calling, /profile, /auth, /dashboard…
@@ -278,7 +278,7 @@ pnpm --filter @gig-grab/functions verify-caller "+1XXXXXXXXXX" "Their name"
 
 | Want to… | Command |
 |---|---|
-| Hit production API health | `curl https://gig-grab.web.app/api/health` |
+| Hit production API health | `curl https://gitgrab.io/api/health` |
 | Hit agent health (Render) | `curl https://gig-grab.onrender.com/healthz` |
 | Tail api logs | `gcloud run services logs tail api --region=europe-west2 --project=gig-grab` |
 | Tail agent logs | `render logs --resources srv-d7tm084m0tmc73ctijpg --tail` |
@@ -287,7 +287,7 @@ pnpm --filter @gig-grab/functions verify-caller "+1XXXXXXXXXX" "Their name"
 | Browse production DB | `pnpm --filter @gig-grab/db studio` (with proxy running on :5433) |
 | List recent Twilio calls | `curl -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Calls.json?PageSize=5"` |
 | Run unit tests | `pnpm --filter @gig-grab/functions test` |
-| Test the live verify form on a team number | `https://gig-grab.web.app/start` and pick that team member's phone (must be in OutgoingCallerIds) |
+| Test the live verify form on a team number | `https://gitgrab.io/start` and pick that team member's phone (must be in OutgoingCallerIds) |
 
 ---
 

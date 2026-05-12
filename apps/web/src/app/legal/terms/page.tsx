@@ -13,7 +13,7 @@ export const metadata = {
   description: "The agreement between you and GigGrab when you use our service.",
 };
 
-const LAST_UPDATED = "2026-05-10";
+const LAST_UPDATED = "2026-05-11";
 
 export default function TermsPage() {
   return (
@@ -184,7 +184,7 @@ export default function TermsPage() {
               <p>
                 You may stop using the Service at any time and request
                 account deletion via{" "}
-                <a href="mailto:privacy@gig-grab.com">privacy@gig-grab.com</a>.
+                <a href="mailto:privacy@gitgrab.io">privacy@gitgrab.io</a>.
                 We may suspend or terminate accounts for breach of these
                 Terms or where required by law. Sections that should
                 reasonably survive termination (ownership, disclaimers,
@@ -214,9 +214,9 @@ export default function TermsPage() {
 
             <Section heading="16. Contact">
               <p>
-                Questions: <a href="mailto:hello@gig-grab.com">hello@gig-grab.com</a>.
+                Questions: <a href="mailto:hello@gitgrab.io">hello@gitgrab.io</a>.
                 Privacy or data-rights requests:{" "}
-                <a href="mailto:privacy@gig-grab.com">privacy@gig-grab.com</a>.
+                <a href="mailto:privacy@gitgrab.io">privacy@gitgrab.io</a>.
               </p>
             </Section>
           </div>
