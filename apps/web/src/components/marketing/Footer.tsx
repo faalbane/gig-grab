@@ -5,7 +5,7 @@ import { LocaleBadge } from "./LocaleBadge";
 export function Footer() {
   return (
     <footer className="border-t border-gray-100 bg-white">
-      <div className="mx-auto grid max-w-6xl gap-12 px-6 py-16 lg:grid-cols-4">
+      <div className="mx-auto grid max-w-6xl gap-8 px-6 py-12 sm:grid-cols-2 sm:py-16 lg:grid-cols-4 lg:gap-12">
         <div className="lg:col-span-1">
           <Logo />
           <p className="mt-4 max-w-xs text-sm text-gray-600">

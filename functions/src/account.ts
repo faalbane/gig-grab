@@ -15,13 +15,25 @@ import { signSessionToken } from "./security";
 const E164 = /^\+[1-9]\d{6,14}$/;
 const VERIFY_API = "https://verify.twilio.com/v2";
 
-async function decodeBearer(req: Request): Promise<{ uid: string } | null> {
+type AuthCtx = {
+  uid: string;
+  email: string | null;
+  emailVerified: boolean;
+  phone: string | null;
+};
+
+async function decodeBearer(req: Request): Promise<AuthCtx | null> {
   const authz = (req.headers.authorization ?? "") as string;
   const tok = authz.startsWith("Bearer ") ? authz.slice(7) : "";
   if (!tok) return null;
   try {
     const decoded = await getAuth().verifyIdToken(tok);
-    return { uid: decoded.uid };
+    return {
+      uid: decoded.uid,
+      email: (decoded.email ?? null) as string | null,
+      emailVerified: Boolean(decoded.email_verified),
+      phone: (decoded.phone_number ?? null) as string | null,
+    };
   } catch {
     return null;
   }
@@ -34,6 +46,62 @@ async function findCandidateByUid(uid: string) {
     .where(eq(candidates.firebaseUid, uid))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Resolve the signed-in user to a candidate row. Mirrors authLink's
+ * uid → phone → verified-email → stub fallback, so any auth-gated
+ * endpoint can self-heal a missing row instead of 404ing. This keeps
+ * the dashboard from showing a "no candidate row" error if /auth/link
+ * was skipped or raced the first read.
+ */
+async function ensureCandidateForUid(auth: AuthCtx) {
+  let row = await findCandidateByUid(auth.uid);
+  if (row) return row;
+
+  if (auth.phone) {
+    [row] = await db()
+      .update(candidates)
+      .set({
+        firebaseUid: auth.uid,
+        email: auth.emailVerified && auth.email ? auth.email : undefined,
+      })
+      .where(eq(candidates.phone, auth.phone))
+      .returning();
+    if (row) return row;
+  }
+
+  if (auth.email && auth.emailVerified) {
+    const [match] = await db()
+      .select()
+      .from(candidates)
+      .where(eq(candidates.email, auth.email))
+      .limit(1);
+    if (match && (!match.firebaseUid || match.firebaseUid === auth.uid)) {
+      [row] = await db()
+        .update(candidates)
+        .set({ firebaseUid: auth.uid })
+        .where(eq(candidates.id, match.id))
+        .returning();
+      if (row) return row;
+    }
+  }
+
+  const id = randomUUID();
+  [row] = await db()
+    .insert(candidates)
+    .values({
+      id,
+      firebaseUid: auth.uid,
+      phone: auth.phone ?? `pending-${id.slice(0, 8)}`,
+      email: auth.emailVerified && auth.email ? auth.email : undefined,
+      language: "en",
+    })
+    .returning();
+  console.log(
+    `[account] stub created uid=${auth.uid.slice(0, 6)} phone=${row.phone}`,
+  );
+  return row;
 }
 
 /**
@@ -55,11 +123,7 @@ export async function accountProfileUpdate(
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
-  const candidate = await findCandidateByUid(auth.uid);
-  if (!candidate) {
-    res.status(404).json({ error: "no candidate row" });
-    return;
-  }
+  const candidate = await ensureCandidateForUid(auth);
 
   const body = (req.body ?? {}) as {
     name?: string;
@@ -152,11 +216,7 @@ export async function accountMe(req: Request, res: Response): Promise<void> {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
-  const row = await findCandidateByUid(auth.uid);
-  if (!row) {
-    res.status(404).json({ error: "no candidate row" });
-    return;
-  }
+  const row = await ensureCandidateForUid(auth);
   const [card] = await db()
     .select()
     .from(profileCards)
@@ -201,20 +261,7 @@ export async function accountWebCallStart(
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
-  let candidate = await findCandidateByUid(auth.uid);
-  if (!candidate) {
-    // Lazy-create a stub if the user hit /voice before any other onboarding.
-    const id = randomUUID();
-    [candidate] = await db()
-      .insert(candidates)
-      .values({
-        id,
-        firebaseUid: auth.uid,
-        phone: `pending-${id.slice(0, 8)}`,
-        language: "en",
-      })
-      .returning();
-  }
+  const candidate = await ensureCandidateForUid(auth);
 
   const language = (req.body?.language ?? candidate.language ?? "en") as string;
   const audience =
@@ -329,16 +376,9 @@ export async function accountPhoneConfirm(
     return;
   }
 
-  // Find the candidate row the signed-in uid is currently bound to.
-  const [existing] = await db()
-    .select()
-    .from(candidates)
-    .where(eq(candidates.firebaseUid, auth.uid))
-    .limit(1);
-  if (!existing) {
-    res.status(404).json({ error: "no candidate row to update" });
-    return;
-  }
+  // Self-heal: ensure the signed-in uid has a candidate row, then proceed
+  // with the phone-verify + MERGE-on-collision logic below.
+  const existing = await ensureCandidateForUid(auth);
 
   // Does another row already own this phone (typically from a prior
   // hotline call before the user ever signed in)?

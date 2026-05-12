@@ -233,7 +233,23 @@ type CountryFilter = "all" | "gb" | "us";
 function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
   const [jobs, setJobs] = useState<JobRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [country, setCountry] = useState<CountryFilter>("all");
+  // Default the country filter to the visitor's detected region (set by
+  // <LocaleBadge /> at most 24h ago in localStorage). Saves users from
+  // a sea of irrelevant out-of-region listings on first visit.
+  const [country, setCountry] = useState<CountryFilter>(() => {
+    if (typeof window === "undefined") return "all";
+    try {
+      const raw = localStorage.getItem("gg.locale.country");
+      if (!raw) return "all";
+      const parsed = JSON.parse(raw) as { country?: string };
+      const c = (parsed?.country ?? "").toUpperCase();
+      if (c === "GB" || c === "UK") return "gb";
+      if (c === "US") return "us";
+      return "all";
+    } catch {
+      return "all";
+    }
+  });
 
   useEffect(() => {
     let cancelled = false;

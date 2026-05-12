@@ -103,10 +103,10 @@ function GetStartedFormInner() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
-      {/* LEFT: brand aside */}
+    <div className="grid lg:min-h-screen lg:grid-cols-[1.1fr_1fr]">
+      {/* LEFT: brand aside — desktop only, mobile users go straight to form */}
       <aside
-        className="relative flex flex-col justify-between overflow-hidden px-7 py-10 text-white sm:px-14 sm:py-12"
+        className="relative hidden flex-col justify-between overflow-hidden px-7 py-10 text-white sm:px-14 sm:py-12 lg:flex"
         style={{
           background:
             "linear-gradient(160deg, var(--gg-green) 0%, var(--gg-green-dark) 60%, var(--gg-green-deep) 100%)",
@@ -260,7 +260,32 @@ function GetStartedFormInner() {
       </aside>
 
       {/* RIGHT: form */}
-      <main className="flex items-center justify-center px-6 py-10 sm:px-12 sm:py-14">
+      <main className="flex flex-col items-center justify-center px-6 py-8 sm:px-12 sm:py-14">
+        {/* Mobile-only brand strip (aside is hidden below lg) */}
+        <div className="mb-6 flex w-full max-w-[460px] items-center justify-between lg:hidden">
+          <Link href="/" className="inline-flex items-center gap-2">
+            <span
+              className="grid h-[34px] w-[34px] place-items-center rounded-[8px] text-[13px] font-extrabold text-white"
+              style={{ background: "var(--gg-green)" }}
+            >
+              GG
+            </span>
+            <span
+              className="text-[17px] font-extrabold tracking-tight"
+              style={{ color: "var(--gg-ink)" }}
+            >
+              GigGrab
+            </span>
+          </Link>
+          <Link
+            href="/auth"
+            className="text-[13px] font-semibold"
+            style={{ color: "var(--gg-muted)" }}
+          >
+            Log in →
+          </Link>
+        </div>
+
         <form onSubmit={onSubmit} className="w-full max-w-[460px]">
           <div
             className="mb-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider"

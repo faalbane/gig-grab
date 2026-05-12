@@ -72,7 +72,7 @@ export function HotlineHero({ mode }: Props) {
               </div>
 
               <div
-                className="mb-8 rounded-3xl border bg-white p-8 sm:p-9"
+                className="mb-8 rounded-3xl border bg-white p-5 sm:p-9"
                 style={{
                   borderColor: "var(--gg-line)",
                   boxShadow:
@@ -233,7 +233,7 @@ function PhoneDialer({
           inline (horizontal) size. clamp() floor/ceiling caps it on
           very small / very wide screens. */}
       <div
-        className="flex items-baseline gap-1.5 leading-none"
+        className="flex items-baseline gap-1 leading-none sm:gap-1.5"
         style={{ whiteSpace: "nowrap" }}
       >
         {digits.map((d, i) => {
@@ -244,8 +244,8 @@ function PhoneDialer({
               className="mono font-bold"
               style={{
                 fontSize: isSep
-                  ? "clamp(20px, 6cqi, 48px)"
-                  : "clamp(28px, 8.2cqi, 64px)",
+                  ? "clamp(16px, 6cqi, 48px)"
+                  : "clamp(22px, 8.2cqi, 64px)",
                 color: isSep ? "var(--gg-line-2)" : "var(--gg-ink)",
                 letterSpacing: "-0.04em",
                 fontVariantNumeric: "tabular-nums",
