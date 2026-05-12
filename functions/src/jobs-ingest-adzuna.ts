@@ -242,6 +242,189 @@ export async function jobsIngestAdzuna(
 }
 
 /**
+ * Curated refresh set. One Cloud Scheduler hit calls every query in
+ * this list. Add new trades / regions here; the rest of the pipeline
+ * picks them up on the next refresh. Each query consumes one Adzuna
+ * API call out of the free 1000/month tier — 20 queries × 2 refreshes
+ * per day = 1200/month, so the cron should run at most every 12h to
+ * stay within budget. Bump to a paid tier if you push it harder.
+ */
+const REFRESH_QUERIES: Array<{
+  country: "gb" | "us";
+  what: string;
+  where?: string;
+}> = [
+  // UK
+  { country: "gb", what: "carpenter" },
+  { country: "gb", what: "electrician" },
+  { country: "gb", what: "plumber" },
+  { country: "gb", what: "nurse" },
+  { country: "gb", what: "chef" },
+  { country: "gb", what: "hgv driver" },
+  { country: "gb", what: "warehouse" },
+  { country: "gb", what: "care worker" },
+  { country: "gb", what: "software engineer" },
+  { country: "gb", what: "product designer" },
+  // US
+  { country: "us", what: "carpenter" },
+  { country: "us", what: "electrician" },
+  { country: "us", what: "plumber" },
+  { country: "us", what: "nurse" },
+  { country: "us", what: "chef" },
+  { country: "us", what: "truck driver" },
+  { country: "us", what: "warehouse" },
+  { country: "us", what: "home health aide" },
+  { country: "us", what: "software engineer" },
+  { country: "us", what: "product designer" },
+];
+
+/**
+ * POST /api/jobs/ingest/adzuna/refresh-all
+ *
+ * Auth: Authorization: Bearer <INGEST_SECRET> (or ?key=). Loops the
+ * REFRESH_QUERIES set and runs the same per-query insert logic
+ * jobsIngestAdzuna uses. Idempotent — repeat calls only insert new
+ * Adzuna IDs. Designed to be called by Cloud Scheduler every 12h.
+ *
+ * Returns a summary { results: [{country, what, inserted, skipped,
+ * error?}, ...] } so the schedule's logs show what actually changed.
+ */
+export async function jobsIngestAdzunaRefreshAll(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const secret = process.env.INGEST_SECRET;
+  if (!secret) {
+    res.status(500).json({ error: "INGEST_SECRET not configured" });
+    return;
+  }
+  const authz = (req.headers.authorization ?? "") as string;
+  const bearer = authz.startsWith("Bearer ") ? authz.slice(7) : "";
+  const key = (req.query.key as string | undefined) ?? bearer;
+  if (key !== secret) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+
+  const appId = process.env.ADZUNA_APP_ID;
+  const appKey = process.env.ADZUNA_APP_KEY;
+  if (!appId || !appKey) {
+    res.status(503).json({ error: "Adzuna keys not set" });
+    return;
+  }
+
+  const employerId = await ensureAggregatorEmployer();
+
+  const results: Array<{
+    country: string;
+    what: string;
+    inserted: number;
+    skipped: number;
+    error?: string;
+  }> = [];
+  let totalInserted = 0;
+
+  for (const q of REFRESH_QUERIES) {
+    let inserted = 0;
+    let skipped = 0;
+    try {
+      const url = new URL(
+        `https://api.adzuna.com/v1/api/jobs/${q.country}/search/1`,
+      );
+      url.searchParams.set("app_id", appId);
+      url.searchParams.set("app_key", appKey);
+      url.searchParams.set("results_per_page", "50");
+      url.searchParams.set("content-type", "application/json");
+      url.searchParams.set("what", q.what);
+      if (q.where) url.searchParams.set("where", q.where);
+
+      const r = await fetch(url.toString());
+      if (!r.ok) {
+        results.push({
+          country: q.country,
+          what: q.what,
+          inserted: 0,
+          skipped: 0,
+          error: `adzuna ${r.status}`,
+        });
+        continue;
+      }
+      const payload = (await r.json()) as AdzunaSearchResponse;
+      const rows = payload.results ?? [];
+
+      for (const row of rows) {
+        const adzunaId = String(row.id ?? "").trim();
+        if (!adzunaId) {
+          skipped++;
+          continue;
+        }
+        if (await jobExistsForAdzunaId(adzunaId)) {
+          skipped++;
+          continue;
+        }
+        const title =
+          (row.title ?? "").trim().slice(0, 240) || "Untitled role";
+        const location =
+          row.location?.display_name?.trim().slice(0, 240) ||
+          (q.country === "us" ? "USA" : "UK");
+        const pay = formatPay(row);
+        const description = (row.description ?? "").trim().slice(0, 2000);
+        const company = (row.company?.display_name ?? "").trim().slice(0, 160);
+        const insertRow: NewJob = {
+          employerId,
+          title,
+          location,
+          pay,
+          shiftPattern: row.contract_type ?? null,
+          mustHaves: [],
+          dealBreakers: [],
+          structuredBrief: {
+            adzunaId,
+            source: "adzuna",
+            country: q.country,
+            company,
+            category: row.category?.label ?? null,
+            applyUrl: row.redirect_url ?? null,
+            description,
+            createdAt: row.created ?? null,
+          },
+          source: "link",
+          status: "active",
+          requiredCount: 1,
+        };
+        try {
+          await db().insert(jobs).values(insertRow);
+          inserted++;
+          totalInserted++;
+        } catch (err) {
+          console.error("[adzuna-refresh] row insert failed", err);
+          skipped++;
+        }
+      }
+      results.push({
+        country: q.country,
+        what: q.what,
+        inserted,
+        skipped,
+      });
+    } catch (err) {
+      results.push({
+        country: q.country,
+        what: q.what,
+        inserted,
+        skipped,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+    }
+  }
+
+  console.log(
+    `[adzuna-refresh] done — ${REFRESH_QUERIES.length} queries, ${totalInserted} new jobs`,
+  );
+  res.json({ ok: true, totalInserted, results });
+}
+
+/**
  * GET /api/account/jobs?limit=20
  *
  * Auth: Firebase ID token in Authorization Bearer. Returns the latest

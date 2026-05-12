@@ -23,6 +23,7 @@ import {
 } from "./account";
 import {
   jobsIngestAdzuna,
+  jobsIngestAdzunaRefreshAll,
   accountJobsList,
 } from "./jobs-ingest-adzuna";
 
@@ -173,6 +174,10 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/jobs/ingest/adzuna") {
         await jobsIngestAdzuna(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/jobs/ingest/adzuna/refresh-all") {
+        await jobsIngestAdzunaRefreshAll(req, res);
         return;
       }
       res.status(404).json({ error: "not found", path });
