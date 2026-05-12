@@ -7,9 +7,11 @@ import {
   sessions,
   transcriptTurns,
   profileCards,
+  jobs,
+  matches,
   type ProfileProject,
 } from "@gig-grab/db";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, and, ilike, sql } from "drizzle-orm";
 // sms helpers retained in repo but no longer used by extractProfile —
 // the post-call outro instructs callers to log in at gitgrab.io.
 
@@ -59,6 +61,28 @@ const PROFILE_TOOL = {
             company: { type: "string" },
             period: { type: "string", description: "e.g. '2024-2025' or '6 months in 2025'." },
             description: { type: "string" },
+          },
+        },
+      },
+      applyIntents: {
+        type: "array",
+        description:
+          "Any specific jobs the candidate asked to APPLY to during THIS call. Only include if they explicitly said apply / interested / want this one / sign me up. Do NOT infer apply intent from general career talk. Empty array if no apply intent.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["roleTitle"],
+          properties: {
+            roleTitle: {
+              type: "string",
+              description:
+                "Role title in the candidate's words. E.g. 'site carpenter', 'A&E nurse', 'product designer at Spotify'.",
+            },
+            company: {
+              type: "string",
+              description:
+                "Employer name if the candidate said it, otherwise empty string.",
+            },
           },
         },
       },
@@ -303,6 +327,63 @@ export async function extractProfile(sessionId: string): Promise<void> {
       ` tickets=${merged.ticketsAndCards.length}` +
       ` projects=${merged.recentProjects.length})`,
   );
+
+  // Process any apply-intents Claude detected in the transcript. For
+  // each, fuzzy-match against the active jobs table by title (+company
+  // if provided) and upsert a matches row with status='applied'. This
+  // is what makes "I want to apply for the carpenter at Bayford" during
+  // a hotline call surface in the dashboard as an Applied job, with no
+  // tool-use plumbing required in the agent.
+  type ApplyIntentInput = { roleTitle?: string; company?: string };
+  const applyIntents: ApplyIntentInput[] = Array.isArray(
+    (input as { applyIntents?: unknown }).applyIntents,
+  )
+    ? ((input as { applyIntents: ApplyIntentInput[] }).applyIntents ?? [])
+    : [];
+  for (const raw of applyIntents) {
+    const role = cleanStr(raw?.roleTitle ?? "");
+    const company = cleanStr(raw?.company ?? "");
+    if (!role) continue;
+    try {
+      const conds = [
+        eq(jobs.status, "active"),
+        ilike(jobs.title, `%${role}%`),
+      ];
+      if (company) {
+        conds.push(sql`structured_brief->>'company' ILIKE ${`%${company}%`}`);
+      }
+      const [hit] = await db()
+        .select({ id: jobs.id, title: jobs.title })
+        .from(jobs)
+        .where(and(...conds))
+        .orderBy(sql`${jobs.createdAt} desc`)
+        .limit(1);
+      if (!hit) {
+        console.log(
+          `[apply:phone] no job match for "${role}"${company ? ` @ "${company}"` : ""}`,
+        );
+        continue;
+      }
+      await db()
+        .insert(matches)
+        .values({
+          candidateId: session.candidateId,
+          jobId: hit.id,
+          score: "0.900",
+          whyRanked: `Phone apply: "${role}"${company ? ` @ "${company}"` : ""}`,
+          status: "applied",
+        })
+        .onConflictDoUpdate({
+          target: [matches.candidateId, matches.jobId],
+          set: { status: "applied", updatedAt: new Date() },
+        });
+      console.log(
+        `[apply:phone] cand=${session.candidateId.slice(0, 8)} job=${hit.id.slice(0, 8)} (${hit.title})`,
+      );
+    } catch (err) {
+      console.error(`[apply:phone] failed for "${role}"`, err);
+    }
+  }
 
   // Post-call SMS link removed — the new outro tells callers to log on
   // to gitgrab.io with their phone number instead. Phone-OTP sign-in
