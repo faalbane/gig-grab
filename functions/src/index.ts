@@ -26,6 +26,7 @@ import {
   jobsIngestAdzunaRefreshAll,
   accountJobsList,
 } from "./jobs-ingest-adzuna";
+import { adminRerunExtract } from "./admin";
 
 initializeApp();
 
@@ -109,8 +110,18 @@ export const api = onRequest(
         await twilioInbound(req, res);
         return;
       }
-      if (method === "POST" && path === "/twilio/status") {
+      if (
+        method === "POST" &&
+        (path === "/twilio/status" || path === "/twilio/inbound-status")
+      ) {
         await twilioInboundStatus(req, res);
+        return;
+      }
+      const rerunMatch = path.match(
+        /^\/admin\/rerun-extract\/([0-9a-f-]{36})$/,
+      );
+      if (rerunMatch && method === "POST") {
+        await adminRerunExtract(req, res, rerunMatch[1]);
         return;
       }
       const profileMatch = path.match(
