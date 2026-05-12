@@ -15,13 +15,79 @@ import { eq, asc, and, ilike, sql } from "drizzle-orm";
 // sms helpers retained in repo but no longer used by extractProfile —
 // the post-call outro instructs callers to log in at giggrab.io.
 
+// Canonical credentials — when a candidate's pronunciation gets garbled
+// by STT ("Cisco Gold" instead of "CSCS Gold", "OSHA thirty" instead of
+// "OSHA-30"), Claude can match against this list and emit the proper
+// canonical form so the recruiter-facing CV is consistent. If the
+// transcript phrase doesn't clearly match anything here, Claude keeps
+// the candidate's verbatim words rather than guessing.
+const CANONICAL_CREDENTIALS = [
+  // UK construction / trades
+  "CSCS Gold Card",
+  "CSCS Black Card",
+  "CSCS Green Card",
+  "CSCS Blue Card",
+  "CSCS Red Card",
+  "IPAF 3a",
+  "IPAF 3b",
+  "IPAF 1b",
+  "PASMA",
+  "SMSTS",
+  "SSSTS",
+  "CITB Health & Safety Touch-screen",
+  "First Aid at Work",
+  // UK healthcare
+  "NMC PIN",
+  "HCPC registered",
+  "GMC registered",
+  "Mental Health First Aid",
+  // US construction / safety
+  "OSHA-10",
+  "OSHA-30",
+  "OSHA HAZWOPER",
+  "ServSafe",
+  "Forklift Operator (OSHA)",
+  // US commercial driving
+  "CDL Class A",
+  "CDL Class B",
+  // Healthcare (US/global)
+  "Registered Nurse (RN)",
+  "Licensed Practical Nurse (LPN)",
+  "Certified Nursing Assistant (CNA)",
+  "BLS certified",
+  "ACLS certified",
+  // Tech / cloud
+  "AWS Certified Solutions Architect",
+  "AWS Certified Developer",
+  "Google Cloud Professional Cloud Architect",
+  "Microsoft Azure Fundamentals (AZ-900)",
+  "Microsoft Azure Administrator (AZ-104)",
+  "Certified Kubernetes Administrator (CKA)",
+  // PM / agile
+  "PMP",
+  "Certified Scrum Master (CSM)",
+  "PRINCE2 Practitioner",
+  // Language teaching
+  "TEFL",
+  "TESOL",
+  "CELTA",
+];
+
 const PROFILE_EXTRACTION_PROMPT = `You are an expert at distilling a candidate intake call into a structured profile that will appear on a recruiter-facing CV. Read the transcript and produce ONE JSON object matching the schema.
 
 Hard rules:
 - If a field wasn't covered in the call, return an empty string "" (or 0 for yearsExperience, [] for arrays). NEVER return "<UNKNOWN>" or a placeholder.
 - summary: 1-2 sentences in third person, neutral tone. If the call was clearly a test or had no usable info, summary = "" and we'll show a placeholder in the UI.
 - name: first name only is fine. If genuinely not stated, return "".
-- title: short noun phrase the candidate used (e.g. "site carpenter"). If they didn't state a trade, return "".`;
+- title: short noun phrase the candidate used (e.g. "site carpenter"). If they didn't state a trade, return "".
+
+Credential canonicalization:
+When the candidate mentions a certificate / ticket / licence / membership, check whether their phrasing matches one of these canonical forms (case-insensitive, STT may have garbled the spelling — e.g. "Cisco Gold" almost certainly means "CSCS Gold Card", "OSHA thirty" means "OSHA-30", "NMC pin" means "NMC PIN"). If a confident match exists, use the canonical form below; otherwise keep the candidate's verbatim words.
+
+Canonical list:
+${CANONICAL_CREDENTIALS.map((c) => `- ${c}`).join("\n")}
+
+If the candidate names something not on this list (e.g. a specific degree like "BSc Computer Science", a company-specific cert, an award), keep their phrasing as-is — do not force into the canonical list.`;
 
 const PROFILE_TOOL = {
   name: "save_profile",
