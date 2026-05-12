@@ -43,7 +43,7 @@ export default function PrivacyPage() {
                 data processed through our website, hotline, and voice agent.
               </p>
               <p>
-                Contact: <a href="mailto:privacy@gitgrab.io">privacy@gitgrab.io</a>
+                Contact: <a href="mailto:privacy@giggrab.io">privacy@giggrab.io</a>
               </p>
             </Section>
 
@@ -225,7 +225,7 @@ export default function PrivacyPage() {
               </ul>
               <p>
                 To exercise any of these, email{" "}
-                <a href="mailto:privacy@gitgrab.io">privacy@gitgrab.io</a>.
+                <a href="mailto:privacy@giggrab.io">privacy@giggrab.io</a>.
                 We respond within one month.
               </p>
             </Section>
@@ -268,7 +268,7 @@ export default function PrivacyPage() {
             <Section heading="15. Contact">
               <p>
                 Questions, requests, or complaints:{" "}
-                <a href="mailto:privacy@gitgrab.io">privacy@gitgrab.io</a>.
+                <a href="mailto:privacy@giggrab.io">privacy@giggrab.io</a>.
               </p>
               <p>
                 See also our{" "}

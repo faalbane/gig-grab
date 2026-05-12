@@ -13,7 +13,7 @@ import {
 } from "@gig-grab/db";
 import { eq, asc, and, ilike, sql } from "drizzle-orm";
 // sms helpers retained in repo but no longer used by extractProfile —
-// the post-call outro instructs callers to log in at gitgrab.io.
+// the post-call outro instructs callers to log in at giggrab.io.
 
 const PROFILE_EXTRACTION_PROMPT = `You are an expert at distilling a candidate intake call into a structured profile that will appear on a recruiter-facing CV. Read the transcript and produce ONE JSON object matching the schema.
 
@@ -386,7 +386,7 @@ export async function extractProfile(sessionId: string): Promise<void> {
   }
 
   // Post-call SMS link removed — the new outro tells callers to log on
-  // to gitgrab.io with their phone number instead. Phone-OTP sign-in
+  // to giggrab.io with their phone number instead. Phone-OTP sign-in
   // (accountPhoneConfirm) merges the hotline candidate row into the
   // signed-in account, which is the same merge the SMS link used to
   // skip via the session HMAC token.

@@ -73,22 +73,24 @@ export function verifyTwilioSignature(req: Request): boolean {
   //    https://api-353215144615.europe-west2.run.app/twilio/<...>
   //  • Inbound hotline / status callback — Twilio number config points at
   //    Firebase Hosting which rewrites to Cloud Run. During the
-  //    `gig-grab.web.app` → `gitgrab.io` cutover, Twilio may sign either
-  //    URL depending on what's configured in the Twilio Console at the
-  //    moment of the request. Validate against BOTH bases.
+  //    gitgrab.io → giggrab.io cutover, Twilio may sign either URL
+  //    depending on what's configured in the Twilio Console at the
+  //    moment of the request. Validate against ALL bases.
   // After the Hosting rewrite, req.path on Cloud Run can either include
   // or omit the leading "/api" depending on Functions Gen version. Build
   // every plausible URL and accept any signature match.
   const apiBase =
     process.env.PUBLIC_API_URL ??
     "https://api-353215144615.europe-west2.run.app";
-  const primaryWebBase = process.env.PUBLIC_WEB_URL ?? "https://gitgrab.io";
-  // Transitional fallback: keep the old hosting URL in the candidate set
-  // so signatures from any not-yet-updated Twilio numbers still validate.
-  // Safe to remove once Twilio Console has been swapped over for a week
-  // and the old .web.app URL is no longer referenced anywhere upstream.
-  const legacyWebBase = "https://gig-grab.web.app";
-  const webBases = new Set<string>([primaryWebBase, legacyWebBase]);
+  const primaryWebBase = process.env.PUBLIC_WEB_URL ?? "https://giggrab.io";
+  // Transitional fallback set. Kept until 1 week after the Twilio
+  // Console URL flip is verified clean — then we drop gitgrab.io and
+  // gig-grab.web.app from the candidate set.
+  const legacyWebBases = [
+    "https://gitgrab.io",
+    "https://gig-grab.web.app",
+  ];
+  const webBases = new Set<string>([primaryWebBase, ...legacyWebBases]);
   const raw = req.path; // could be "/twilio/inbound" or "/api/twilio/inbound"
   const stripped = raw.replace(/^\/api(?=\/|$)/, ""); // always without /api
   const candidates = new Set<string>([

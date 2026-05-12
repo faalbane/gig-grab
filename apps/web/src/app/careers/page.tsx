@@ -116,14 +116,14 @@ export default function CareersPage() {
                 Call {HOTLINE}
               </a>
               <a
-                href="mailto:hello@gitgrab.io?subject=Careers"
+                href="mailto:hello@giggrab.io?subject=Careers"
                 className="inline-flex h-12 items-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
                 style={{
                   borderColor: "var(--gg-line-2)",
                   color: "var(--gg-ink)",
                 }}
               >
-                Email hello@gitgrab.io
+                Email hello@giggrab.io
               </a>
             </div>
           </section>

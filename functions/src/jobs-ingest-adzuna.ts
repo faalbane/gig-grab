@@ -44,7 +44,7 @@ type AdzunaSearchResponse = {
 };
 
 const AGGREGATOR_ID = "adzuna-aggregator";
-const AGGREGATOR_EMAIL = "aggregator@gitgrab.io";
+const AGGREGATOR_EMAIL = "aggregator@giggrab.io";
 const AGGREGATOR_COMPANY = "Adzuna (aggregated listings)";
 
 /** Idempotent: creates the stub aggregator employer row if missing,
