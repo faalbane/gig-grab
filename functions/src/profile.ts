@@ -45,7 +45,8 @@ const PROFILE_TOOL = {
       ticketsAndCards: {
         type: "array",
         items: { type: "string" },
-        description: "Verbatim list of certs/tickets — 'CSCS Gold', 'IPAF 3a/3b', 'NMC PIN', etc.",
+        description:
+          "Credentials — degrees, certifications, trade tickets, awards, alumni status, professional memberships. Verbatim. Examples: 'CSCS Gold', 'IPAF 3a/3b', 'NMC PIN', 'BSc Computer Science', 'Y Combinator W21 Alumni', 'AWS Solutions Architect'. Include anything verifiable that a recruiter would scan.",
       },
       recentProjects: {
         type: "array",

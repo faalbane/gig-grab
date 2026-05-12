@@ -167,9 +167,9 @@ export function EditableCvCard({ card, email, onUpdated }: Props) {
           )}
         </SectionShell>
 
-        {/* Tickets & cards */}
+        {/* Credentials — degrees, certs, tickets, awards, memberships */}
         <SectionShell
-          heading="Tickets & cards"
+          heading="Credentials"
           editing={editing === "tickets"}
           onEdit={() => setEditing("tickets")}
           onCancel={() => setEditing(null)}
@@ -180,12 +180,19 @@ export function EditableCvCard({ card, email, onUpdated }: Props) {
                 .map((t) => clean(t))
                 .filter(Boolean);
               return items.length > 0 ? (
-                <ul
-                  className="grid gap-1 text-sm sm:grid-cols-2"
-                  style={{ color: "var(--gg-ink-2)" }}
-                >
+                <ul className="flex flex-wrap gap-2">
                   {items.map((t) => (
-                    <li key={t}>{t}</li>
+                    <li
+                      key={t}
+                      className="inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-semibold"
+                      style={{
+                        background: "var(--gg-green-tint-2)",
+                        borderColor: "var(--gg-green-tint)",
+                        color: "var(--gg-green-deep)",
+                      }}
+                    >
+                      {t}
+                    </li>
                   ))}
                 </ul>
               ) : (
@@ -193,8 +200,8 @@ export function EditableCvCard({ card, email, onUpdated }: Props) {
                   className="text-sm italic"
                   style={{ color: "var(--gg-muted)" }}
                 >
-                  No certs or tickets on file. Tap the pencil to add them, one
-                  per line.
+                  No credentials on file. Tap the pencil to add degrees,
+                  certs, tickets, or awards — one per line.
                 </p>
               );
             })()
@@ -443,7 +450,7 @@ function TicketsEditor({
         onChange={(e) => setText(e.target.value)}
         rows={Math.max(4, initial.length + 1)}
         autoFocus
-        placeholder={"CSCS Gold\nFirst-aid certified\nForklift licence"}
+        placeholder={"CSCS Gold\nBSc Computer Science\nFirst-aid certified\nY Combinator Alum"}
         className="w-full rounded-xl border-[1.5px] px-3.5 py-2.5 text-sm outline-none"
         style={{ borderColor: "var(--gg-line-2)" }}
       />

@@ -78,7 +78,7 @@ export function CvPreview({ card, email, sessionId, token }: Props) {
               .map((t) => clean(t))
               .filter(Boolean);
             return tickets.length > 0 ? (
-              <Section heading="Tickets & cards">
+              <Section heading="Credentials">
                 <ul className="grid gap-1 text-sm text-gray-800 sm:grid-cols-2">
                   {tickets.map((t) => (
                     <li key={t}>{t}</li>

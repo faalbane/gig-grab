@@ -81,14 +81,14 @@ function renderPdf(card: Card): Promise<Buffer> {
         .text(summary, { lineGap: 3 });
     }
 
-    // Tickets & cards
+    // Credentials — degrees, certs, tickets, awards, memberships
     if (card.ticketsAndCards.length) {
       doc.moveDown(1);
       doc
         .fillColor("#6b7280")
         .font("Helvetica-Bold")
         .fontSize(9)
-        .text("TICKETS & CARDS", { characterSpacing: 1.4 });
+        .text("CREDENTIALS", { characterSpacing: 1.4 });
       doc.moveDown(0.4).fillColor("#1f2937").font("Helvetica").fontSize(11);
       card.ticketsAndCards.forEach((t) => {
         doc.text(`• ${clean(t)}`);
