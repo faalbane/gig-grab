@@ -6,9 +6,12 @@ type Props = {
   /** Provided when we're inside a session-token-gated profile view. */
   sessionId?: string;
   token?: string;
+  /** True while a snapshot extract is in flight. Shows a small spinner pill
+   * in the header so users know their CV is being rebuilt right now. */
+  updating?: boolean;
 };
 
-export function CvPreview({ card, email, sessionId, token }: Props) {
+export function CvPreview({ card, email, sessionId, token, updating }: Props) {
   const pdfHref =
     sessionId && token && card
       ? `/api/sessions/${sessionId}/cv.pdf?token=${encodeURIComponent(token)}`
@@ -17,7 +20,28 @@ export function CvPreview({ card, email, sessionId, token }: Props) {
   return (
     <section className="flex h-full flex-col rounded-2xl border border-gray-200 bg-white">
       <header className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-        <h2 className="text-sm font-semibold text-gray-900">CV preview</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-gray-900">CV preview</h2>
+          {updating && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wider"
+              style={{
+                background: "var(--gg-green-tint)",
+                color: "var(--gg-green-dark)",
+                letterSpacing: "0.1em",
+              }}
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: "var(--gg-green)",
+                  animation: "glowDot 1.6s ease-in-out infinite",
+                }}
+              />
+              Updating
+            </span>
+          )}
+        </div>
         {pdfHref ? (
           <a
             href={pdfHref}

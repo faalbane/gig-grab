@@ -20,6 +20,7 @@ from typing import Optional
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
+    BotStoppedSpeakingFrame,
     EndFrame,
     Frame,
     InterimTranscriptionFrame,
@@ -235,6 +236,83 @@ class TranscriptDbWriter(FrameProcessor):
                 self._ai_buffer.append(chunk)
 
 
+# Wrap-up phrase detector. Prompts close with "Speak soon." (sometimes the
+# log-on instruction immediately precedes it). We match either signal so
+# punctuation/case drift in the LLM output doesn't strand the call open.
+_WRAPUP_SPEAK_SOON_RE = re.compile(r"speak\s+soon\b", re.IGNORECASE)
+_WRAPUP_LOGON_RE = re.compile(
+    r"log\s*on\s+to\s+giggrab\.io\s+with\s+your\s+phone\s+number", re.IGNORECASE
+)
+
+
+def _looks_like_wrapup(text: str) -> bool:
+    if not text:
+        return False
+    return bool(_WRAPUP_SPEAK_SOON_RE.search(text) or _WRAPUP_LOGON_RE.search(text))
+
+
+class WrapUpHangup(FrameProcessor):
+    """End the call gracefully once the AI has finished delivering its
+    sign-off line.
+
+    Sits at the tail of the pipeline so it observes both the LLM streaming
+    output (TextFrame chunks bracketed by LLMFullResponseStart/EndFrame) and
+    the BotStoppedSpeakingFrame emitted by the transport output AFTER audio
+    playback has actually drained. When the buffered assistant turn matches
+    the wrap-up pattern, we arm a one-shot flag and push an EndFrame on the
+    next BotStoppedSpeakingFrame.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(name="wrap-up-hangup")
+        self._buffer: list[str] = []
+        self._buffering = False
+        self._armed = False
+        self._fired = False
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+
+        if self._fired:
+            return
+
+        if direction != FrameDirection.DOWNSTREAM:
+            return
+
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self._buffer = []
+            self._buffering = True
+            return
+
+        if isinstance(frame, LLMFullResponseEndFrame):
+            self._buffering = False
+            text = "".join(self._buffer)
+            self._buffer = []
+            if _looks_like_wrapup(text):
+                logger.info(
+                    f"[wrap-up] sign-off detected; will end call after TTS drains: {text[:120]!r}"
+                )
+                self._armed = True
+            return
+
+        if (
+            self._buffering
+            and isinstance(frame, TextFrame)
+            and not isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame))
+        ):
+            chunk = getattr(frame, "text", "")
+            if chunk:
+                self._buffer.append(chunk)
+            return
+
+        if self._armed and isinstance(frame, BotStoppedSpeakingFrame):
+            self._fired = True
+            self._armed = False
+            logger.info("[wrap-up] audio drained — pushing EndFrame")
+            await self.push_frame(EndFrame(), FrameDirection.DOWNSTREAM)
+
+
 def _format_profile_snapshot(p: dict) -> str:
     """Render a profile_card row as a compact LLM-friendly snapshot.
 
@@ -396,6 +474,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     normalizer = CandidateTextNormalizer()
     db_writer_user = TranscriptDbWriter(cfg.session_id, role="candidate")
     db_writer_ai = TranscriptDbWriter(cfg.session_id, role="ai")
+    wrap_up_hangup = WrapUpHangup()
 
     pipeline = Pipeline(
         [
@@ -409,6 +488,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
             tts,
             transport.output(),
             assistant_aggregator,
+            wrap_up_hangup,     # ends the call after the sign-off audio drains
         ]
     )
 

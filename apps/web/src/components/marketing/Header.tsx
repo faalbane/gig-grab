@@ -12,7 +12,15 @@ const NAV_LINKS: [string, string][] = [
   ["About", "/about"],
 ];
 
-export function Header() {
+type HeaderProps = {
+  /** Compact mode hides the right-side UserMenu + auth chrome — useful on
+   * focused-task pages like /voice where the avatar / "log out" controls
+   * clutter the page during a live call. Nav links + mobile hamburger
+   * stay so users can still navigate. */
+  compact?: boolean;
+};
+
+export function Header({ compact = false }: HeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
@@ -27,7 +35,7 @@ export function Header() {
           ))}
         </nav>
         <div className="flex items-center gap-3">
-          <UserMenu />
+          {!compact && <UserMenu />}
           <button
             type="button"
             onClick={() => setMobileOpen((o) => !o)}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LanguagePicker } from "./LanguagePicker";
@@ -12,6 +12,8 @@ import {
   signInWithGoogle,
   startEmailMagicLink,
   postAuthLink,
+  useAuthUser,
+  fetchWithAuth,
 } from "@/lib/firebase";
 
 type Audience = "worker" | "employer";
@@ -38,6 +40,30 @@ function GetStartedFormInner() {
   const [email, setEmail] = useState("");
   const [emailSent, setEmailSent] = useState(false);
   const [authBusy, setAuthBusy] = useState<string | null>(null);
+
+  // Pre-fill phone if the visitor is already signed in and has a phone on
+  // file. Saves a returning user from re-entering their number.
+  const user = useAuthUser();
+  const [presetPhone, setPresetPhone] = useState<string | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await fetchWithAuth<{
+          candidate: { phone: string | null; email: string | null };
+        }>("/api/account/me");
+        if (cancelled) return;
+        if (me?.candidate.phone) setPresetPhone(me.candidate.phone);
+        if (me?.candidate.email) setEmail(me.candidate.email);
+      } catch {
+        // benign — form still usable empty
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const valid = phoneValid && consent;
 
@@ -352,7 +378,12 @@ function GetStartedFormInner() {
               Mobile number
             </label>
             <div className="mt-1.5">
-              <PhoneE164Input onChange={onPhoneChange} showPreview={false} />
+              <PhoneE164Input
+                key={presetPhone ?? "empty"}
+                onChange={onPhoneChange}
+                showPreview={false}
+                defaultE164={presetPhone ?? undefined}
+              />
             </div>
 
             <label className="mt-4 flex cursor-pointer items-start gap-3 text-[13px] text-gray-700">

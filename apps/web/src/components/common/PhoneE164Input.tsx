@@ -36,22 +36,42 @@ type Props = {
   onChange: (e164: string, isValid: boolean) => void;
   defaultCountryIndex?: number;
   defaultPhone?: string;
+  /** If provided, splits an E.164 string into country index + national digits
+   * and pre-fills both inputs. Useful for signed-in users who already have a
+   * phone on file. */
+  defaultE164?: string;
   /** Render a small "Will text to +…" preview line under the inputs. */
   showPreview?: boolean;
   inputId?: string;
   className?: string;
 };
 
+function splitE164(e164: string): { idx: number; rest: string } | null {
+  if (!e164 || !e164.startsWith("+")) return null;
+  // Try longest country code first to avoid matching "+1" inside "+44".
+  const sorted = COUNTRY_CODES.map((c, i) => ({ ...c, i })).sort(
+    (a, b) => b.code.length - a.code.length,
+  );
+  for (const c of sorted) {
+    if (e164.startsWith(c.code)) {
+      return { idx: c.i, rest: e164.slice(c.code.length) };
+    }
+  }
+  return null;
+}
+
 export function PhoneE164Input({
   onChange,
   defaultCountryIndex = 0,
   defaultPhone = "",
+  defaultE164,
   showPreview = true,
   inputId,
   className,
 }: Props) {
-  const [countryIndex, setCountryIndex] = useState(defaultCountryIndex);
-  const [phone, setPhone] = useState(defaultPhone);
+  const seed = defaultE164 ? splitE164(defaultE164) : null;
+  const [countryIndex, setCountryIndex] = useState(seed?.idx ?? defaultCountryIndex);
+  const [phone, setPhone] = useState(seed?.rest ?? defaultPhone);
   const country = COUNTRY_CODES[countryIndex];
   const e164 = toE164(country.code, phone);
   const valid = E164_RE.test(e164);

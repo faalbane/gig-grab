@@ -6,7 +6,7 @@ import { VoiceCallView } from "@/components/voice/VoiceCallView";
 export default function VoicePage() {
   return (
     <>
-      <Header />
+      <Header compact />
       <main
         className="flex-1"
         style={{

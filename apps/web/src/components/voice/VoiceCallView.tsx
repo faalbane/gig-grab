@@ -63,6 +63,7 @@ export function VoiceCallView() {
   const lastSnapshotAtRef = useRef<number>(0);
   const SNAPSHOT_TURN_DELTA = 6;
   const SNAPSHOT_COOLDOWN_MS = 8000;
+  const [snapshotting, setSnapshotting] = useState(false);
 
   // Initial /account/me fetch so the CV pane has something to show.
   useEffect(() => {
@@ -123,6 +124,7 @@ export function VoiceCallView() {
     lastSnapshotTurnCountRef.current = turns.length;
     lastSnapshotAtRef.current = Date.now();
     let cancelled = false;
+    setSnapshotting(true);
     (async () => {
       try {
         await fetchWithAuth(
@@ -134,6 +136,8 @@ export function VoiceCallView() {
         if (!cancelled) setMe(data);
       } catch {
         // benign — next snapshot tick will retry
+      } finally {
+        if (!cancelled) setSnapshotting(false);
       }
     })();
     return () => {
@@ -272,18 +276,32 @@ export function VoiceCallView() {
       <DashboardCrumb />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_minmax(0,440px)]">
-        {/* LEFT — call control + transcript */}
+        {/* LEFT — control + transcript. Order flips during a live call so
+            the active conversation is the first thing visible above the
+            fold. Pre-call / post-call the control card leads. */}
         <div className="space-y-4">
-          <CallControlCard
-            phase={phase}
-            onStart={start}
-            onStop={stop}
-            error={error}
-          />
-          <TranscriptCard
-            phase={phase}
-            turns={turns}
-          />
+          {phase === "live" ? (
+            <>
+              <TranscriptCard phase={phase} turns={turns} />
+              <CallControlCard
+                phase={phase}
+                onStart={start}
+                onStop={stop}
+                error={error}
+                slim
+              />
+            </>
+          ) : (
+            <>
+              <CallControlCard
+                phase={phase}
+                onStart={start}
+                onStop={stop}
+                error={error}
+              />
+              <TranscriptCard phase={phase} turns={turns} />
+            </>
+          )}
         </div>
 
         {/* RIGHT — CV preview */}
@@ -291,6 +309,7 @@ export function VoiceCallView() {
           <CvPreview
             card={me?.profile ?? null}
             email={me?.candidate.email ?? undefined}
+            updating={snapshotting}
           />
           {phase === "live" && (
             <p
@@ -358,14 +377,58 @@ function CallControlCard({
   onStart,
   onStop,
   error,
+  slim = false,
 }: {
   phase: Phase;
   onStart: () => void;
   onStop: () => void;
   error: string | null;
+  slim?: boolean;
 }) {
   const isLive = phase === "live";
   const isStarting = phase === "starting";
+  if (slim && isLive) {
+    return (
+      <div
+        className="flex items-center justify-between gap-3 rounded-2xl border bg-white px-4 py-3"
+        style={{ borderColor: "var(--gg-line)" }}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="relative grid h-9 w-9 flex-shrink-0 place-items-center rounded-full text-white"
+            style={{ background: "var(--gg-green)" }}
+          >
+            <IconMic width={14} height={14} />
+            <span
+              className="absolute inset-0 rounded-full border-2"
+              style={{
+                borderColor: "var(--gg-green)",
+                animation: "pulseRing 1.8s ease-out infinite",
+              }}
+            />
+          </div>
+          <div
+            className="mono text-xs font-semibold uppercase"
+            style={{
+              color: "var(--gg-green-dark)",
+              letterSpacing: "0.14em",
+            }}
+          >
+            On the call · listening
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onStop}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl px-4 text-xs font-bold text-white"
+          style={{ background: "var(--gg-ink)" }}
+        >
+          <IconClose width={12} height={12} />
+          End call
+        </button>
+      </div>
+    );
+  }
   return (
     <div
       className="rounded-2xl border bg-white p-6"
