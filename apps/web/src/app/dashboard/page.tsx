@@ -237,6 +237,7 @@ type JobRow = {
   country: string | null;
   applyUrl: string | null;
   createdAt: string;
+  applied: boolean;
 };
 
 type CountryFilter = "all" | "gb" | "us";
@@ -375,7 +376,19 @@ function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
       <CountryFilterPills value={country} onChange={setCountry} />
       <div className="space-y-3">
         {jobs.map((j) => (
-          <JobCard key={j.id} job={j} />
+          <JobCard
+            key={j.id}
+            job={j}
+            onApplied={(jobId) =>
+              setJobs((prev) =>
+                prev
+                  ? prev.map((row) =>
+                      row.id === jobId ? { ...row, applied: true } : row,
+                    )
+                  : prev,
+              )
+            }
+          />
         ))}
       </div>
     </div>
@@ -424,11 +437,40 @@ function CountryFilterPills({
   );
 }
 
-function JobCard({ job }: { job: JobRow }) {
+function JobCard({
+  job,
+  onApplied,
+}: {
+  job: JobRow;
+  onApplied: (jobId: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function apply() {
+    if (job.applied || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await fetchWithAuth(`/api/account/jobs/${job.id}/apply`, {
+        method: "POST",
+        body: JSON.stringify({ via: "web" }),
+      });
+      onApplied(job.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't apply right now.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <article
       className="rounded-2xl border bg-white p-5"
-      style={{ borderColor: "var(--gg-line)" }}
+      style={{
+        borderColor: job.applied ? "var(--gg-green-tint)" : "var(--gg-line)",
+        background: job.applied ? "var(--gg-green-tint-2)" : "white",
+      }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -462,13 +504,31 @@ function JobCard({ job }: { job: JobRow }) {
               .join(" · ") || "—"}
           </p>
         </div>
-        <div className="flex flex-shrink-0 gap-2">
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+          {job.applied ? (
+            <span
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white"
+              style={{ background: "var(--gg-green-dark)" }}
+            >
+              <CheckMark /> Applied
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={apply}
+              disabled={busy}
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-60"
+              style={{ background: "var(--gg-green)" }}
+            >
+              {busy ? "Applying…" : "Apply"}
+            </button>
+          )}
           <a
             href={`tel:${HOTLINE.replace(/\s/g, "")}`}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white"
-            style={{ background: "var(--gg-green)" }}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+            style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
           >
-            <IconPhone width={13} height={13} /> Call to apply
+            <IconPhone width={13} height={13} /> Call
           </a>
           {job.applyUrl && (
             <a
@@ -486,7 +546,34 @@ function JobCard({ job }: { job: JobRow }) {
           )}
         </div>
       </div>
+      {err && (
+        <p
+          className="mt-2 rounded-md px-3 py-1.5 text-xs"
+          style={{
+            background: "rgba(230,57,70,0.08)",
+            color: "#9B1C29",
+          }}
+          role="alert"
+        >
+          {err}
+        </p>
+      )}
     </article>
+  );
+}
+
+function CheckMark() {
+  return (
+    <svg width={12} height={12} viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M5 12l5 5L20 7"
+        stroke="currentColor"
+        strokeWidth={3}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
   );
 }
 

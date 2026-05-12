@@ -4,9 +4,12 @@ import {
   db,
   employers,
   jobs,
+  matches,
+  candidates,
   type NewJob,
 } from "@gig-grab/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray, and } from "drizzle-orm";
+import { getAuth } from "firebase-admin/auth";
 
 /**
  * Adzuna search-API client.
@@ -436,16 +439,16 @@ export async function accountJobsList(
   req: Request,
   res: Response,
 ): Promise<void> {
-  // Lazy import to keep this file's compile small.
-  const { getAuth } = await import("firebase-admin/auth");
   const authz = (req.headers.authorization ?? "") as string;
   const tok = authz.startsWith("Bearer ") ? authz.slice(7) : "";
   if (!tok) {
     res.status(401).json({ error: "unauthenticated" });
     return;
   }
+  let uid: string;
   try {
-    await getAuth().verifyIdToken(tok);
+    const decoded = await getAuth().verifyIdToken(tok);
+    uid = decoded.uid;
   } catch {
     res.status(401).json({ error: "invalid token" });
     return;
@@ -477,6 +480,31 @@ export async function accountJobsList(
     .orderBy(sql`${jobs.createdAt} desc`)
     .limit(limit);
 
+  // Stitch the signed-in user's apply state onto each row. Cheap single
+  // JOIN-equivalent: one extra query that filters matches to the rows
+  // we're about to return.
+  const [me] = await db()
+    .select({ id: candidates.id })
+    .from(candidates)
+    .where(eq(candidates.firebaseUid, uid))
+    .limit(1);
+
+  const jobIds = rows.map((r) => r.id);
+  const appliedJobIds = new Set<string>();
+  if (me && jobIds.length > 0) {
+    const appliedRows = await db()
+      .select({ jobId: matches.jobId })
+      .from(matches)
+      .where(
+        and(
+          eq(matches.candidateId, me.id),
+          eq(matches.status, "applied"),
+          inArray(matches.jobId, jobIds),
+        ),
+      );
+    for (const r of appliedRows) appliedJobIds.add(r.jobId);
+  }
+
   const out = rows.map((r) => {
     const brief = (r.structuredBrief ?? {}) as Record<string, unknown>;
     return {
@@ -490,8 +518,79 @@ export async function accountJobsList(
       country: (brief.country as string) ?? null,
       applyUrl: (brief.applyUrl as string) ?? null,
       createdAt: r.createdAt,
+      applied: appliedJobIds.has(r.id),
     };
   });
 
   res.json({ jobs: out, country: country || "all" });
+}
+
+/**
+ * POST /api/account/jobs/:jobId/apply
+ *
+ * Auth: Firebase ID token. Idempotent — re-applying is a no-op. Writes
+ * a row into `matches` with status='applied'. Used both by the web
+ * "Apply" button and (future) by the agent when a caller signals
+ * intent to apply during a hotline call.
+ */
+export async function accountJobsApply(
+  req: Request,
+  res: Response,
+  jobId: string,
+): Promise<void> {
+  const authz = (req.headers.authorization ?? "") as string;
+  const tok = authz.startsWith("Bearer ") ? authz.slice(7) : "";
+  if (!tok) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  let uid: string;
+  try {
+    const decoded = await getAuth().verifyIdToken(tok);
+    uid = decoded.uid;
+  } catch {
+    res.status(401).json({ error: "invalid token" });
+    return;
+  }
+
+  const [me] = await db()
+    .select({ id: candidates.id })
+    .from(candidates)
+    .where(eq(candidates.firebaseUid, uid))
+    .limit(1);
+  if (!me) {
+    res.status(404).json({ error: "no candidate row" });
+    return;
+  }
+
+  const [j] = await db()
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(eq(jobs.id, jobId))
+    .limit(1);
+  if (!j) {
+    res.status(404).json({ error: "job not found" });
+    return;
+  }
+
+  const via = (req.body?.via ?? "web") === "phone" ? "phone" : "web";
+
+  await db()
+    .insert(matches)
+    .values({
+      candidateId: me.id,
+      jobId: j.id,
+      score: "1.000",
+      whyRanked: `Manual apply via ${via}`,
+      status: "applied",
+    })
+    .onConflictDoUpdate({
+      target: [matches.candidateId, matches.jobId],
+      set: { status: "applied", updatedAt: new Date() },
+    });
+
+  console.log(
+    `[apply] candidate=${me.id.slice(0, 8)} job=${j.id.slice(0, 8)} via=${via}`,
+  );
+  res.json({ ok: true, applied: true });
 }

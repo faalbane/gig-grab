@@ -26,6 +26,7 @@ import {
   jobsIngestAdzuna,
   jobsIngestAdzunaRefreshAll,
   accountJobsList,
+  accountJobsApply,
 } from "./jobs-ingest-adzuna";
 import { adminRerunExtract } from "./admin";
 
@@ -189,6 +190,13 @@ export const api = onRequest(
       }
       if (method === "GET" && path === "/account/jobs") {
         await accountJobsList(req, res);
+        return;
+      }
+      const applyMatch = path.match(
+        /^\/account\/jobs\/([0-9a-f-]{36})\/apply$/,
+      );
+      if (applyMatch && method === "POST") {
+        await accountJobsApply(req, res, applyMatch[1]);
         return;
       }
       if (method === "POST" && path === "/jobs/ingest/adzuna") {
