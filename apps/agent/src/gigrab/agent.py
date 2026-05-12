@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     EndFrame,
@@ -402,10 +403,15 @@ class AgentConfig:
 
 
 async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig):
+    # Deepgram tuning — switched from "multi" to the per-call language hint
+    # because cofounder feedback flagged STT misses + lag. "multi" runs the
+    # multilingual model which is slower and less confident on softer EN
+    # speech. The hotline still supports 30+ languages because cfg.language
+    # is set per-session by /intake/start or the inbound webhook.
     stt = DeepgramSTTService(
         api_key=os.environ["DEEPGRAM_API_KEY"],
         model="nova-3",
-        language="multi",  # code-switching across the supported 10 languages
+        language=cfg.language or "en",
         name="deepgram-stt",
     )
 
@@ -464,10 +470,20 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
                 ),
             }
         )
+    # VAD tuning — defaults (confidence=0.7, stop_secs=0.8, min_volume=0.6)
+    # were dropping softer / accented speech and waiting too long after the
+    # caller finished talking. Lowering thresholds + cutting stop_secs to
+    # 500 ms makes the agent respond faster and pick up quieter utterances.
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(),
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(
+                    confidence=0.55,
+                    stop_secs=0.5,
+                    min_volume=0.5,
+                ),
+            ),
         ),
     )
 
