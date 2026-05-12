@@ -229,12 +229,28 @@ export async function accountProfileUpdate(
         : (existing?.recentProjects ?? []),
   };
 
+  // Track every field the user just edited as a manual override so a
+  // later transcript snapshot extract doesn't clobber the human edit.
+  const overrideFields = [
+    "name",
+    "title",
+    "yearsExperience",
+    "location",
+    "summary",
+    "ticketsAndCards",
+    "recentProjects",
+  ] as const;
+  const manualOverrides = { ...(existing?.manualOverrides ?? {}) };
+  for (const f of overrideFields) {
+    if (f in body) manualOverrides[f] = true;
+  }
+
   await db()
     .insert(profileCards)
-    .values({ candidateId: candidate.id, ...merged })
+    .values({ candidateId: candidate.id, ...merged, manualOverrides })
     .onConflictDoUpdate({
       target: profileCards.candidateId,
-      set: { ...merged, updatedAt: new Date() },
+      set: { ...merged, manualOverrides, updatedAt: new Date() },
     });
 
   res.json({

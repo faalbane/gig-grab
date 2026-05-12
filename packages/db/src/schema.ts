@@ -115,6 +115,19 @@ export type ProfileProject = {
   description?: string;
 };
 
+/** Per-field manual-override flags. Set true for any field the user has
+ * edited via PUT /api/account/profile so subsequent transcript extracts
+ * don't clobber the manual value with a freshly-extracted one. */
+export type ProfileManualOverrides = Partial<{
+  name: boolean;
+  title: boolean;
+  yearsExperience: boolean;
+  location: boolean;
+  summary: boolean;
+  ticketsAndCards: boolean;
+  recentProjects: boolean;
+}>;
+
 export const profileCards = pgTable("profile_cards", {
   candidateId: text("candidate_id")
     .primaryKey()
@@ -129,6 +142,10 @@ export const profileCards = pgTable("profile_cards", {
     .$type<ProfileProject[]>()
     .notNull()
     .default([]),
+  manualOverrides: jsonb("manual_overrides")
+    .$type<ProfileManualOverrides>()
+    .notNull()
+    .default({}),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

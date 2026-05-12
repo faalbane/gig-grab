@@ -360,20 +360,51 @@ export async function extractProfile(sessionId: string): Promise<void> {
       p && (cleanStr(p.role) || cleanStr(p.company) || cleanStr(p.description)),
   );
 
+  // Honour manual overrides set by accountProfileUpdate. A field the user
+  // has edited via the dashboard must NOT be silently rewritten by a
+  // later extraction pass; the candidate's correction is authoritative.
+  const ov = existing?.manualOverrides ?? {};
+  const pick = <T>(field: keyof typeof ov, fresh: T, kept: T): T =>
+    ov[field] ? kept : fresh;
+
   const merged = {
-    name: newName || existing?.name || "",
-    title: newTitle || existing?.title || "",
-    location: newLocation || existing?.location || "",
-    summary: newSummary || existing?.summary || "",
-    yearsExperience: Math.max(newYears, existing?.yearsExperience ?? 0),
-    ticketsAndCards: dedupeStrings([
-      ...(existing?.ticketsAndCards ?? []),
-      ...newTickets,
-    ]),
-    recentProjects: dedupeProjects([
-      ...(existing?.recentProjects ?? []),
-      ...newProjects,
-    ]),
+    name: pick("name", newName || existing?.name || "", existing?.name ?? ""),
+    title: pick(
+      "title",
+      newTitle || existing?.title || "",
+      existing?.title ?? "",
+    ),
+    location: pick(
+      "location",
+      newLocation || existing?.location || "",
+      existing?.location ?? "",
+    ),
+    summary: pick(
+      "summary",
+      newSummary || existing?.summary || "",
+      existing?.summary ?? "",
+    ),
+    yearsExperience: pick(
+      "yearsExperience",
+      Math.max(newYears, existing?.yearsExperience ?? 0),
+      existing?.yearsExperience ?? 0,
+    ),
+    ticketsAndCards: pick(
+      "ticketsAndCards",
+      dedupeStrings([
+        ...(existing?.ticketsAndCards ?? []),
+        ...newTickets,
+      ]),
+      existing?.ticketsAndCards ?? [],
+    ),
+    recentProjects: pick(
+      "recentProjects",
+      dedupeProjects([
+        ...(existing?.recentProjects ?? []),
+        ...newProjects,
+      ]),
+      existing?.recentProjects ?? [],
+    ),
   };
 
   await db()
