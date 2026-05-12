@@ -122,8 +122,24 @@ export async function jobsIngestAdzuna(
     return;
   }
 
-  const country = String(req.query.country ?? "gb").slice(0, 2);
+  const country = String(req.query.country ?? "gb").slice(0, 2).toLowerCase();
   const page = Math.max(1, Number(req.query.page ?? 1) || 1);
+
+  // One-shot backfill: stamp ?backfill=gb (or us) onto every existing
+  // adzuna row that's missing a country field. Idempotent — the WHERE
+  // clause skips rows already stamped. Lets us upgrade prior ingests
+  // without touching the DB directly.
+  const backfillCountry = String(req.query.backfill ?? "")
+    .slice(0, 2)
+    .toLowerCase();
+  if (backfillCountry) {
+    await db().execute(
+      sql`UPDATE jobs SET structured_brief = jsonb_set(structured_brief, '{country}', ${`"${backfillCountry}"`}::jsonb, true)
+          WHERE structured_brief->>'source' = 'adzuna'
+            AND (structured_brief->>'country' IS NULL OR structured_brief->>'country' = '')`,
+    );
+    console.log(`[adzuna] backfilled country=${backfillCountry}`);
+  }
   const resultsPerPage = Math.min(
     50,
     Math.max(1, Number(req.query.results_per_page ?? 50) || 50),
@@ -195,6 +211,7 @@ export async function jobsIngestAdzuna(
         structuredBrief: {
           adzunaId,
           source: "adzuna",
+          country,
           company,
           category: r.category?.label ?? null,
           applyUrl: r.redirect_url ?? null,
@@ -255,6 +272,12 @@ export async function accountJobsList(
     50,
     Math.max(1, Number(req.query.limit ?? 20) || 20),
   );
+  const country = String(req.query.country ?? "").slice(0, 2).toLowerCase();
+
+  const conditions = [eq(jobs.status, "active")];
+  if (country === "gb" || country === "us") {
+    conditions.push(sql`structured_brief->>'country' = ${country}`);
+  }
 
   const rows = await db()
     .select({
@@ -267,7 +290,7 @@ export async function accountJobsList(
       createdAt: jobs.createdAt,
     })
     .from(jobs)
-    .where(eq(jobs.status, "active"))
+    .where(sql.join(conditions, sql` AND `))
     .orderBy(sql`${jobs.createdAt} desc`)
     .limit(limit);
 
@@ -281,10 +304,11 @@ export async function accountJobsList(
       pay: r.pay,
       shiftPattern: r.shiftPattern,
       source: (brief.source as string) ?? null,
+      country: (brief.country as string) ?? null,
       applyUrl: (brief.applyUrl as string) ?? null,
       createdAt: r.createdAt,
     };
   });
 
-  res.json({ jobs: out });
+  res.json({ jobs: out, country: country || "all" });
 }

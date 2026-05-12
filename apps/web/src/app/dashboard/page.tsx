@@ -223,20 +223,26 @@ type JobRow = {
   pay: string | null;
   shiftPattern: string | null;
   source: string | null;
+  country: string | null;
   applyUrl: string | null;
   createdAt: string;
 };
 
+type CountryFilter = "all" | "gb" | "us";
+
 function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
   const [jobs, setJobs] = useState<JobRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [country, setCountry] = useState<CountryFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
+    setJobs(null); // show loading shimmer between filter switches
+    const qs = country === "all" ? "" : `&country=${country}`;
     (async () => {
       try {
         const data = await fetchWithAuth<{ jobs: JobRow[] }>(
-          "/api/account/jobs?limit=20",
+          `/api/account/jobs?limit=20${qs}`,
         );
         if (!cancelled) setJobs(data.jobs ?? []);
       } catch (e) {
@@ -249,7 +255,7 @@ function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [country]);
 
   if (jobs === null) {
     return (
@@ -318,7 +324,7 @@ function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
   return (
     <div>
       <div
-        className="mb-4 flex items-center justify-between gap-3 rounded-xl border p-3.5"
+        className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3.5"
         style={{
           background: "var(--gg-green-tint-2)",
           borderColor: "var(--gg-line)",
@@ -339,11 +345,54 @@ function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
           <IconPhone width={13} height={13} /> {HOTLINE}
         </a>
       </div>
+      <CountryFilterPills value={country} onChange={setCountry} />
       <div className="space-y-3">
         {jobs.map((j) => (
           <JobCard key={j.id} job={j} />
         ))}
       </div>
+    </div>
+  );
+}
+
+function CountryFilterPills({
+  value,
+  onChange,
+}: {
+  value: CountryFilter;
+  onChange: (next: CountryFilter) => void;
+}) {
+  const options: { value: CountryFilter; label: string }[] = [
+    { value: "all", label: "All countries" },
+    { value: "gb", label: "🇬🇧 United Kingdom" },
+    { value: "us", label: "🇺🇸 United States" },
+  ];
+  return (
+    <div
+      className="mb-4 inline-flex flex-wrap rounded-xl border p-1"
+      style={{
+        background: "var(--gg-bg)",
+        borderColor: "var(--gg-line)",
+      }}
+    >
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className="rounded-lg px-4 py-1.5 text-xs font-semibold transition-all"
+            style={{
+              background: active ? "white" : "transparent",
+              color: active ? "var(--gg-ink)" : "var(--gg-muted)",
+              boxShadow: active ? "0 1px 3px rgba(0,0,0,0.06)" : undefined,
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -372,7 +421,16 @@ function JobCard({ job }: { job: JobRow }) {
             className="mt-1.5 mono text-xs"
             style={{ color: "var(--gg-muted)", letterSpacing: "0.04em" }}
           >
-            {[job.pay, job.shiftPattern, job.source ? `via ${job.source}` : null]
+            {[
+              job.country === "gb"
+                ? "🇬🇧 UK"
+                : job.country === "us"
+                  ? "🇺🇸 US"
+                  : null,
+              job.pay,
+              job.shiftPattern,
+              job.source ? `via ${job.source}` : null,
+            ]
               .filter(Boolean)
               .join(" · ") || "—"}
           </p>
