@@ -34,7 +34,10 @@ export function buildProfileUrl(opts: {
   sessionId: string;
   token: string;
 }): string {
-  const origin = opts.publicWebOrigin ?? "https://gig-grab.web.app";
+  const origin =
+    opts.publicWebOrigin ??
+    process.env.APP_BASE_URL ??
+    "https://gitgrab.io";
   const u = new URL("/profile", origin);
   u.searchParams.set("sessionId", opts.sessionId);
   u.searchParams.set("token", opts.token);

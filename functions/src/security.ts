@@ -72,23 +72,33 @@ export function verifyTwilioSignature(req: Request): boolean {
   //  • Outbound (calls/SMS we initiate) — code uses the Cloud Run URL:
   //    https://api-353215144615.europe-west2.run.app/twilio/<...>
   //  • Inbound hotline / status callback — Twilio number config points at
-  //    Firebase Hosting which rewrites to Cloud Run:
-  //    https://gig-grab.web.app/api/twilio/<...>
-  // After the Hosting rewrite, req.path on Cloud Run can either include or
-  // omit the leading "/api" depending on Functions Gen version. Build every
-  // plausible URL and accept any signature match.
+  //    Firebase Hosting which rewrites to Cloud Run. During the
+  //    `gig-grab.web.app` → `gitgrab.io` cutover, Twilio may sign either
+  //    URL depending on what's configured in the Twilio Console at the
+  //    moment of the request. Validate against BOTH bases.
+  // After the Hosting rewrite, req.path on Cloud Run can either include
+  // or omit the leading "/api" depending on Functions Gen version. Build
+  // every plausible URL and accept any signature match.
   const apiBase =
     process.env.PUBLIC_API_URL ??
     "https://api-353215144615.europe-west2.run.app";
-  const webBase = process.env.PUBLIC_WEB_URL ?? "https://gig-grab.web.app";
+  const primaryWebBase = process.env.PUBLIC_WEB_URL ?? "https://gitgrab.io";
+  // Transitional fallback: keep the old hosting URL in the candidate set
+  // so signatures from any not-yet-updated Twilio numbers still validate.
+  // Safe to remove once Twilio Console has been swapped over for a week
+  // and the old .web.app URL is no longer referenced anywhere upstream.
+  const legacyWebBase = "https://gig-grab.web.app";
+  const webBases = new Set<string>([primaryWebBase, legacyWebBase]);
   const raw = req.path; // could be "/twilio/inbound" or "/api/twilio/inbound"
   const stripped = raw.replace(/^\/api(?=\/|$)/, ""); // always without /api
   const candidates = new Set<string>([
     `${apiBase}${stripped}`,
     `${apiBase}${raw}`,
-    `${webBase}/api${stripped}`,
-    `${webBase}${raw}`,
   ]);
+  for (const webBase of webBases) {
+    candidates.add(`${webBase}/api${stripped}`);
+    candidates.add(`${webBase}${raw}`);
+  }
 
   for (const url of candidates) {
     if (twilio.validateRequest(authToken, signature, url, params)) return true;
