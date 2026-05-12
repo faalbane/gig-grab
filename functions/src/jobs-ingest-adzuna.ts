@@ -459,10 +459,30 @@ export async function accountJobsList(
     Math.max(1, Number(req.query.limit ?? 20) || 20),
   );
   const country = String(req.query.country ?? "").slice(0, 2).toLowerCase();
+  const appliedOnly = String(req.query.applied ?? "") === "1";
+
+  // Resolve the signed-in candidate once so we can both (a) restrict to
+  // their applied set when appliedOnly is set, and (b) stitch the
+  // applied flag onto every returned row.
+  const [me] = await db()
+    .select({ id: candidates.id })
+    .from(candidates)
+    .where(eq(candidates.firebaseUid, uid))
+    .limit(1);
 
   const conditions = [eq(jobs.status, "active")];
   if (country === "gb" || country === "us") {
     conditions.push(sql`structured_brief->>'country' = ${country}`);
+  }
+  if (appliedOnly) {
+    if (!me) {
+      res.json({ jobs: [], country: country || "all" });
+      return;
+    }
+    conditions.push(sql`${jobs.id} IN (
+      SELECT job_id FROM matches
+      WHERE candidate_id = ${me.id} AND status = 'applied'
+    )`);
   }
 
   const rows = await db()
@@ -482,13 +502,8 @@ export async function accountJobsList(
 
   // Stitch the signed-in user's apply state onto each row. Cheap single
   // JOIN-equivalent: one extra query that filters matches to the rows
-  // we're about to return.
-  const [me] = await db()
-    .select({ id: candidates.id })
-    .from(candidates)
-    .where(eq(candidates.firebaseUid, uid))
-    .limit(1);
-
+  // we're about to return. `me` was already resolved above for the
+  // appliedOnly filter.
   const jobIds = rows.map((r) => r.id);
   const appliedJobIds = new Set<string>();
   if (me && jobIds.length > 0) {

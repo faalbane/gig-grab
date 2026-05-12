@@ -132,7 +132,19 @@ function DashboardPageInner() {
               }
             />
           )}
-          {tab === "jobs" && <JobsTab onBackToProfile={() => setTab("profile")} />}
+          {tab === "jobs" && (
+            <JobsTab
+              candidateEmail={me?.candidate.email ?? null}
+              onBackToProfile={() => setTab("profile")}
+              onEmailUpdated={(email) =>
+                setMe((prev) =>
+                  prev
+                    ? { ...prev, candidate: { ...prev.candidate, email } }
+                    : prev,
+                )
+              }
+            />
+          )}
         </div>
       </main>
     </>
@@ -241,10 +253,20 @@ type JobRow = {
 };
 
 type CountryFilter = "all" | "gb" | "us";
+type ApplyView = "all" | "applied";
 
-function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
+function JobsTab({
+  candidateEmail,
+  onBackToProfile,
+  onEmailUpdated,
+}: {
+  candidateEmail: string | null;
+  onBackToProfile: () => void;
+  onEmailUpdated: (email: string) => void;
+}) {
   const [jobs, setJobs] = useState<JobRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [view, setView] = useState<ApplyView>("all");
   // Default the country filter to the visitor's detected region (set by
   // <LocaleBadge /> at most 24h ago in localStorage). Saves users from
   // a sea of irrelevant out-of-region listings on first visit.
@@ -266,7 +288,9 @@ function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
   useEffect(() => {
     let cancelled = false;
     setJobs(null); // show loading shimmer between filter switches
-    const qs = country === "all" ? "" : `&country=${country}`;
+    const qs =
+      (country === "all" ? "" : `&country=${country}`) +
+      (view === "applied" ? "&applied=1" : "");
     (async () => {
       try {
         const data = await fetchWithAuth<{ jobs: JobRow[] }>(
@@ -283,7 +307,7 @@ function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, [country]);
+  }, [country, view]);
 
   if (jobs === null) {
     return (
@@ -373,24 +397,86 @@ function JobsTab({ onBackToProfile }: { onBackToProfile: () => void }) {
           <IconPhone width={13} height={13} /> {HOTLINE}
         </a>
       </div>
-      <CountryFilterPills value={country} onChange={setCountry} />
-      <div className="space-y-3">
-        {jobs.map((j) => (
-          <JobCard
-            key={j.id}
-            job={j}
-            onApplied={(jobId) =>
-              setJobs((prev) =>
-                prev
-                  ? prev.map((row) =>
-                      row.id === jobId ? { ...row, applied: true } : row,
-                    )
-                  : prev,
-              )
-            }
-          />
-        ))}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <CountryFilterPills value={country} onChange={setCountry} />
+        <ViewFilterPills value={view} onChange={setView} />
       </div>
+      {view === "applied" && jobs.length === 0 ? (
+        <div
+          className="rounded-2xl border bg-white p-8 text-center text-sm"
+          style={{ borderColor: "var(--gg-line)", color: "var(--gg-muted)" }}
+        >
+          You haven&apos;t applied to any roles yet. Switch back to <strong
+            className="font-bold"
+            style={{ color: "var(--gg-ink)" }}
+          >
+            All
+          </strong>{" "}
+          to browse, then tap <strong className="font-bold">Apply</strong> on a
+          card.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {jobs.map((j) => (
+            <JobCard
+              key={j.id}
+              job={j}
+              candidateEmail={candidateEmail}
+              onApplied={(jobId) =>
+                setJobs((prev) =>
+                  prev
+                    ? prev.map((row) =>
+                        row.id === jobId ? { ...row, applied: true } : row,
+                      )
+                    : prev,
+                )
+              }
+              onEmailUpdated={onEmailUpdated}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ViewFilterPills({
+  value,
+  onChange,
+}: {
+  value: ApplyView;
+  onChange: (next: ApplyView) => void;
+}) {
+  const options: { value: ApplyView; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "applied", label: "✓ Applied" },
+  ];
+  return (
+    <div
+      className="inline-flex rounded-xl border p-1"
+      style={{
+        background: "var(--gg-bg)",
+        borderColor: "var(--gg-line)",
+      }}
+    >
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className="rounded-lg px-4 py-1.5 text-xs font-semibold transition-all"
+            style={{
+              background: active ? "white" : "transparent",
+              color: active ? "var(--gg-ink)" : "var(--gg-muted)",
+              boxShadow: active ? "0 1px 3px rgba(0,0,0,0.06)" : undefined,
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -439,13 +525,20 @@ function CountryFilterPills({
 
 function JobCard({
   job,
+  candidateEmail,
   onApplied,
+  onEmailUpdated,
 }: {
   job: JobRow;
+  candidateEmail: string | null;
   onApplied: (jobId: string) => void;
+  onEmailUpdated: (email: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Show the confirmation strip on a freshly-applied card only — when
+  // the page reloads, the green Applied pill alone is enough.
+  const [showJustApplied, setShowJustApplied] = useState(false);
 
   async function apply() {
     if (job.applied || busy) return;
@@ -457,6 +550,7 @@ function JobCard({
         body: JSON.stringify({ via: "web" }),
       });
       onApplied(job.id);
+      setShowJustApplied(true);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't apply right now.");
     } finally {
@@ -558,7 +652,140 @@ function JobCard({
           {err}
         </p>
       )}
+      {showJustApplied && (
+        <AppliedConfirmation
+          job={job}
+          candidateEmail={candidateEmail}
+          onEmailUpdated={onEmailUpdated}
+          onDismiss={() => setShowJustApplied(false)}
+        />
+      )}
     </article>
+  );
+}
+
+function AppliedConfirmation({
+  job,
+  candidateEmail,
+  onEmailUpdated,
+  onDismiss,
+}: {
+  job: JobRow;
+  candidateEmail: string | null;
+  onEmailUpdated: (email: string) => void;
+  onDismiss: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [emailErr, setEmailErr] = useState<string | null>(null);
+
+  async function saveEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailErr("That email doesn't look right.");
+      return;
+    }
+    setBusy(true);
+    setEmailErr(null);
+    try {
+      await fetchWithAuth(`/api/account/email`, {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      onEmailUpdated(email);
+      setSaved(true);
+    } catch (err) {
+      setEmailErr(err instanceof Error ? err.message : "Couldn't save email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="mt-3 rounded-xl border p-3.5"
+      style={{
+        background: "var(--gg-green-tint-2)",
+        borderColor: "var(--gg-green-tint)",
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p
+          className="m-0 text-sm leading-snug"
+          style={{ color: "var(--gg-green-deep)" }}
+        >
+          <strong className="font-bold">Application logged.</strong>{" "}
+          We&apos;ll call you when {job.company ?? "the employer"} responds.
+          {job.applyUrl && (
+            <>
+              {" "}
+              You can also submit directly on{" "}
+              <a
+                href={job.applyUrl}
+                target="_blank"
+                rel="noreferrer nofollow"
+                className="font-bold underline"
+                style={{ color: "var(--gg-green-dark)" }}
+              >
+                their listing ↗
+              </a>
+              .
+            </>
+          )}
+        </p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-[11px] font-bold opacity-70 hover:opacity-100"
+          style={{ color: "var(--gg-green-dark)" }}
+          aria-label="Dismiss"
+        >
+          ✕
+        </button>
+      </div>
+      {!candidateEmail && !saved && (
+        <form onSubmit={saveEmail} className="mt-3 flex flex-wrap gap-2">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (emailErr) setEmailErr(null);
+            }}
+            placeholder="your@email.com — for status updates"
+            className="h-10 flex-1 min-w-[220px] rounded-lg border-[1.5px] bg-white px-3 text-[13px] outline-none"
+            style={{
+              borderColor: emailErr ? "#E63946" : "var(--gg-line-2)",
+            }}
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="inline-flex h-10 items-center rounded-lg px-3 text-xs font-bold text-white disabled:opacity-60"
+            style={{ background: "var(--gg-green-dark)" }}
+          >
+            {busy ? "Saving…" : "Save email"}
+          </button>
+        </form>
+      )}
+      {saved && (
+        <p
+          className="m-0 mt-2 text-xs"
+          style={{ color: "var(--gg-green-dark)" }}
+        >
+          ✓ Saved — we&apos;ll email you status updates.
+        </p>
+      )}
+      {emailErr && (
+        <p
+          className="m-0 mt-2 text-xs"
+          style={{ color: "#9B1C29" }}
+        >
+          {emailErr}
+        </p>
+      )}
+    </div>
   );
 }
 

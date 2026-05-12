@@ -20,6 +20,7 @@ import {
   accountPhoneStart,
   accountPhoneConfirm,
   accountWebCallStart,
+  accountEmailUpdate,
   sessionExtractSnapshot,
 } from "./account";
 import {
@@ -186,6 +187,10 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/account/web-call/start") {
         await accountWebCallStart(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/account/email") {
+        await accountEmailUpdate(req, res);
         return;
       }
       if (method === "GET" && path === "/account/jobs") {

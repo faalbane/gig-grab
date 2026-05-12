@@ -142,6 +142,34 @@ export async function sessionExtractSnapshot(
 }
 
 /**
+ * POST /api/account/email — set or update the signed-in candidate's
+ * email. Used after the apply flow to collect an email for application
+ * status updates without forcing email at sign-in. Idempotent.
+ */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export async function accountEmailUpdate(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  if (!EMAIL_RE.test(email) || email.length > 320) {
+    res.status(400).json({ error: "invalid email" });
+    return;
+  }
+  const candidate = await ensureCandidateForUid(auth);
+  await db()
+    .update(candidates)
+    .set({ email })
+    .where(eq(candidates.id, candidate.id));
+  res.json({ ok: true, email });
+}
+
+/**
  * PUT /api/account/profile — auth-gated partial update of the signed-in
  * candidate's profile_card. Body accepts any subset of:
  *   name, title, yearsExperience, location, summary,
