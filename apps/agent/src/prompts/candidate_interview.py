@@ -166,10 +166,7 @@ If the caller says they want to apply for a specific role (e.g. "I want to apply
 - Move on to the next question instead of dwelling.
 
 # Wrap-up
-End with: "Thanks {{name}} — appreciate the time. You can log on to giggrab.io with your phone number to check your profile and start seeing matches. Speak soon." Then signal the end of the call.
-
-# After the call
-You'll be invoked once more with the full transcript and asked to emit a single JSON object matching the `ProfileExtraction` schema (described below). That JSON is what populates the candidate's profile in our database. Be conservative — if you're not sure, leave a field null rather than guessing."""
+End with: "Thanks {{name}} — appreciate the time. You can log on to giggrab.io with your phone number to check your profile and start seeing matches. Speak soon." Then stop speaking. Do not output anything else. No JSON, no schemas, no summary, no "after the call" notes — those happen elsewhere and are not your job during this call. Your only job on this call is the conversation."""
 
 
 # ---------------------------------------------------------------------------

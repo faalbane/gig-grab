@@ -375,6 +375,51 @@ export async function accountWebCallStart(
   });
 }
 
+/**
+ * DELETE /api/account — purge the signed-in candidate's row + cascade-linked
+ * data (profile_card, sessions, transcript_turns, matches, interviews,
+ * auto_apply_rules; alerts set-null per schema), then delete the Firebase
+ * Auth user so they can re-onboard fresh — including as a different audience
+ * (worker vs employer) reusing the same phone number.
+ *
+ * Auth: Firebase bearer. No body. Idempotent: missing rows are not an error.
+ */
+export async function accountDelete(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+
+  const row = await findCandidateByUid(auth.uid);
+  if (row) {
+    await db().delete(candidates).where(eq(candidates.id, row.id));
+    console.log(
+      `[account/delete] candidate=${row.id} phone=${row.phone} uid=${auth.uid.slice(0, 6)}`,
+    );
+  } else {
+    console.log(
+      `[account/delete] no candidate row for uid=${auth.uid.slice(0, 6)} — proceeding to auth delete`,
+    );
+  }
+
+  try {
+    await getAuth().deleteUser(auth.uid);
+  } catch (err) {
+    const e = err as { code?: string };
+    if (e?.code !== "auth/user-not-found") {
+      console.error("[account/delete] firebase auth delete failed", err);
+      res.status(500).json({ error: "auth delete failed" });
+      return;
+    }
+  }
+
+  res.json({ ok: true });
+}
+
 /** POST /api/account/phone/start { phone } — kick a Twilio Verify SMS code. */
 export async function accountPhoneStart(
   req: Request,

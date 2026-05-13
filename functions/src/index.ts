@@ -21,6 +21,7 @@ import {
   accountPhoneConfirm,
   accountWebCallStart,
   accountEmailUpdate,
+  accountDelete,
   sessionExtractSnapshot,
 } from "./account";
 import {
@@ -191,6 +192,10 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/account/email") {
         await accountEmailUpdate(req, res);
+        return;
+      }
+      if (method === "DELETE" && path === "/account") {
+        await accountDelete(req, res);
         return;
       }
       if (method === "GET" && path === "/account/jobs") {

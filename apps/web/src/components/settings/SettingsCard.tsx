@@ -38,6 +38,24 @@ export function SettingsCard() {
   const [phoneErr, setPhoneErr] = useState<string | null>(null);
   const [phoneOk, setPhoneOk] = useState<string | null>(null);
 
+  // Delete-account state
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
+
+  async function deleteAccount() {
+    setDeleting(true);
+    setDeleteErr(null);
+    try {
+      await fetchWithAuth("/api/account", { method: "DELETE" });
+      await signOutCurrentUser();
+      window.location.href = "/?deleted=1";
+    } catch (err) {
+      setDeleteErr(err instanceof Error ? err.message : "Couldn't delete account.");
+      setDeleting(false);
+    }
+  }
+
   // Load /account/me when user is authed.
   useEffect(() => {
     if (user === null || user === false) return;
@@ -238,6 +256,44 @@ export function SettingsCard() {
             )}
           </div>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-red-200 bg-white p-6">
+        <h2 className="text-sm font-semibold text-red-900">Delete account</h2>
+        <p className="mt-1 text-xs text-gray-600">
+          Permanently removes your profile, transcripts, applications, and sign-in.
+          You&apos;ll be able to onboard again from scratch with the same phone or email.
+          This cannot be undone.
+        </p>
+        <div className="mt-4 space-y-2">
+          <label
+            htmlFor="delete-confirm"
+            className="block text-xs font-medium text-gray-700"
+          >
+            Type <span className="font-mono font-semibold">DELETE</span> to confirm
+          </label>
+          <input
+            id="delete-confirm"
+            type="text"
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            placeholder="DELETE"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm tracking-widest"
+          />
+          <button
+            type="button"
+            onClick={deleteAccount}
+            disabled={deleting || deleteConfirm !== "DELETE"}
+            className="w-full rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:bg-gray-300"
+          >
+            {deleting ? "Deleting…" : "Delete my account"}
+          </button>
+          {deleteErr && (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {deleteErr}
+            </p>
+          )}
+        </div>
       </section>
     </div>
   );

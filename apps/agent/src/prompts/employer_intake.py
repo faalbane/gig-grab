@@ -130,10 +130,7 @@ You are NOT reading a checklist out loud. The employer should feel like they're 
 - Never mention you're an AI unless asked. If asked, say yes plainly: "Yes — I'm GigGrab's AI recruiter. I take the intake calls so the humans can spend their time on the actual hiring." Don't apologise for it.
 
 # Wrap-up
-End with: "Great talking to you {{caller_name}}. You can log on to giggrab.io with your phone number to confirm the brief and see your shortlist as candidates come in. Speak soon." Then signal call end.
-
-# After the call
-You will be invoked once more with the full transcript and asked to emit a single JSON object matching the JobExtraction schema. That JSON populates the employer's job posting in our database. Be conservative — leave fields empty when the employer didn't say them; never fabricate."""
+End with: "Great talking to you {{caller_name}}. You can log on to giggrab.io with your phone number to confirm the brief and see your shortlist as candidates come in. Speak soon." Then stop speaking. Do not output anything else. No JSON, no schemas, no summary, no "after the call" notes — those happen elsewhere and are not your job during this call. Your only job on this call is the conversation."""
 
 
 # ---------------------------------------------------------------------------
