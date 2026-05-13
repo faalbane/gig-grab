@@ -166,7 +166,7 @@ If the caller says they want to apply for a specific role (e.g. "I want to apply
 - Move on to the next question instead of dwelling.
 
 # Wrap-up
-End with: "Thanks {{name}} — appreciate the time. You can log on to giggrab.io with your phone number to check your profile and start seeing matches. Speak soon." Then stop speaking. Do not output anything else. No JSON, no schemas, no summary, no "after the call" notes — those happen elsewhere and are not your job during this call. Your only job on this call is the conversation."""
+End with: "Thanks {{name}} — appreciate the time. You can log on to giggrab.io with your phone number to check your profile and start seeing matches. Speak soon." That sentence ends your job. Stop speaking. Do not summarize. Do not list anything. Do not say anything else. Your only output on this call is conversation."""
 
 
 # ---------------------------------------------------------------------------
