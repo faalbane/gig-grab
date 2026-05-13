@@ -20,6 +20,56 @@ export function isAllowedLanguage(code: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// E.164 toll-fraud guard.
+//
+// /intake/start dials whatever phone the client sends. Without a country-code
+// allowlist + premium-prefix denylist an attacker can drive paid calls to
+// satellite (+882, +883, +979), premium-rate (+1900, +44(70|9..), African
+// premium ranges), or personal/forwarded numbers — Twilio bills us. The
+// allowlist covers the markets we actually serve for pilot; expand
+// deliberately as we open new ones.
+// ---------------------------------------------------------------------------
+
+// Country calling codes we will actively dial. Pilot scope: UK + Ireland +
+// North America (US/CA share +1).
+const ALLOWED_CALLING_CODES = new Set(["44", "353", "1"]);
+
+// Hard-block prefixes that are billable but never legitimate for hiring
+// outreach: satellite, premium-rate, personal/forwarding ranges, audio-text.
+// Patterns match the LEADING digits of the E.164 (excluding the +).
+const DENY_PREFIXES = [
+  // Global premium / satellite
+  "881", // Global Mobile Satellite
+  "882", // International Networks (Thuraya etc.)
+  "883", // International Networks
+  "979", // International premium audio-text
+  // NANP premium / NANP non-geographic
+  "1900",
+  "1976",
+  // UK premium / personal-numbering / chargeable
+  "4470", // Personal numbering (forwards to anything)
+  "4476", // Pagers / FCS
+  "4487", // Premium audio-text
+  "4490", // Premium audio-text (historical)
+  "4491", // Premium audio-text
+  "4498", // Premium audio-text
+  "4499", // Premium audio-text
+  "4409", // Premium-rate
+];
+
+export function isDialableE164(phone: string): boolean {
+  if (!/^\+[1-9]\d{6,14}$/.test(phone)) return false;
+  const digits = phone.slice(1);
+  for (const deny of DENY_PREFIXES) {
+    if (digits.startsWith(deny)) return false;
+  }
+  for (const cc of ALLOWED_CALLING_CODES) {
+    if (digits.startsWith(cc)) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // HMAC session tokens — short-lived, signed identifier paired with a sessionId
 // so /api/sessions/:id/profile isn't readable just by guessing/leaking the UUID.
 // ---------------------------------------------------------------------------
@@ -123,9 +173,15 @@ const IP_WINDOW_MS = 60_000;
 const IP_MAX_PER_WINDOW = 5;
 
 export function ipFromRequest(req: Request): string {
+  // X-Forwarded-For is client-controllable on the LEFTMOST entry. Behind
+  // Firebase Hosting + Cloud Run the trusted hop appends to the right.
+  // Use the rightmost entry, falling back to req.ip if XFF missing.
   const fwd = (req.header("x-forwarded-for") ?? "") as string;
-  const ip = fwd.split(",")[0]?.trim() || (req.ip ?? "unknown");
-  return ip;
+  const hops = fwd
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return hops[hops.length - 1] || req.ip || "unknown";
 }
 
 export function checkIpRateLimit(ip: string): boolean {

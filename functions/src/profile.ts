@@ -133,11 +133,11 @@ const PROFILE_TOOL = {
       applyIntents: {
         type: "array",
         description:
-          "Any specific jobs the candidate asked to APPLY to during THIS call. Only include if they explicitly said apply / interested / want this one / sign me up. Do NOT infer apply intent from general career talk. Empty array if no apply intent.",
+          "Any specific jobs the candidate asked to APPLY to during THIS call. Include ONLY if the candidate used an explicit apply verb: 'apply', 'sign me up', 'put my name in', 'I want this one', 'yes please / yes apply'. Do NOT include general curiosity ('tell me about', 'what about', 'do you have', 'is there', 'just asking') — those are NOT apply intents. If unsure, leave the array empty. The data is used to actually submit applications on the candidate's behalf.",
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["roleTitle"],
+          required: ["roleTitle", "confidence"],
           properties: {
             roleTitle: {
               type: "string",
@@ -148,6 +148,12 @@ const PROFILE_TOOL = {
               type: "string",
               description:
                 "Employer name if the candidate said it, otherwise empty string.",
+            },
+            confidence: {
+              type: "string",
+              enum: ["high", "medium", "low"],
+              description:
+                "'high' = candidate used an explicit apply verb AND confirmed company/role; 'medium' = used an apply verb but role/company implied not stated; 'low' = ambiguous (questions, soft interest). Only 'high' will be acted on.",
             },
           },
         },
@@ -431,16 +437,28 @@ export async function extractProfile(sessionId: string): Promise<void> {
   // is what makes "I want to apply for the carpenter at Bayford" during
   // a hotline call surface in the dashboard as an Applied job, with no
   // tool-use plumbing required in the agent.
-  type ApplyIntentInput = { roleTitle?: string; company?: string };
+  type ApplyIntentInput = {
+    roleTitle?: string;
+    company?: string;
+    confidence?: "high" | "medium" | "low";
+  };
   const applyIntents: ApplyIntentInput[] = Array.isArray(
-    (input as { applyIntents?: unknown }).applyIntents,
+    (input as unknown as { applyIntents?: unknown }).applyIntents,
   )
-    ? ((input as { applyIntents: ApplyIntentInput[] }).applyIntents ?? [])
+    ? ((input as unknown as { applyIntents: ApplyIntentInput[] })
+        .applyIntents ?? [])
     : [];
   for (const raw of applyIntents) {
     const role = cleanStr(raw?.roleTitle ?? "");
     const company = cleanStr(raw?.company ?? "");
     if (!role) continue;
+    // Only act on 'high'-confidence applies — anything else gets logged
+    // and surfaced as a 'suggested' match for the user to confirm in the
+    // web UI. Without this gate, Claude hallucinates apply intent from
+    // general curiosity questions and submits real applications.
+    const confidence = raw?.confidence ?? "low";
+    const writeStatus: "applied" | "suggested" =
+      confidence === "high" ? "applied" : "suggested";
     try {
       const conds = [
         eq(jobs.status, "active"),
@@ -461,19 +479,32 @@ export async function extractProfile(sessionId: string): Promise<void> {
         );
         continue;
       }
-      await db()
-        .insert(matches)
-        .values({
-          candidateId: session.candidateId,
-          jobId: hit.id,
-          score: "0.900",
-          whyRanked: `Phone apply: "${role}"${company ? ` @ "${company}"` : ""}`,
-          status: "applied",
-        })
-        .onConflictDoUpdate({
-          target: [matches.candidateId, matches.jobId],
-          set: { status: "applied", updatedAt: new Date() },
-        });
+      const insertRow = {
+        candidateId: session.candidateId,
+        jobId: hit.id,
+        score: "0.900",
+        whyRanked: `Phone apply (${confidence}): "${role}"${company ? ` @ "${company}"` : ""}`,
+        status: writeStatus,
+      };
+      if (writeStatus === "applied") {
+        // High-confidence: write/escalate to applied.
+        await db()
+          .insert(matches)
+          .values(insertRow)
+          .onConflictDoUpdate({
+            target: [matches.candidateId, matches.jobId],
+            set: { status: "applied", updatedAt: new Date() },
+          });
+      } else {
+        // Low/medium-confidence: only insert if no row exists yet; never
+        // downgrade an existing `applied`/`screened`/`shortlisted` row.
+        await db()
+          .insert(matches)
+          .values(insertRow)
+          .onConflictDoNothing({
+            target: [matches.candidateId, matches.jobId],
+          });
+      }
       console.log(
         `[apply:phone] cand=${session.candidateId.slice(0, 8)} job=${hit.id.slice(0, 8)} (${hit.title})`,
       );

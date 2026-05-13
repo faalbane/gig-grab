@@ -3,9 +3,10 @@ import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
 import { db, candidates, sessions } from "@gig-grab/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import {
   isAllowedLanguage,
+  isDialableE164,
   signSessionToken,
   ipFromRequest,
   checkIpRateLimit,
@@ -34,6 +35,14 @@ function parse(body: IntakeBody) {
   if (!E164.test(phone)) {
     throw new BadInput("Invalid phone format. Expected E.164, e.g. +447700900123");
   }
+  // Block premium-rate / satellite / non-pilot countries before we hit
+  // Twilio. Without this an unauthenticated POST to /intake/start can
+  // drive expensive calls to attacker-controlled numbers.
+  if (!isDialableE164(phone)) {
+    throw new BadInput(
+      "We can only call UK, Ireland, US and Canadian numbers right now.",
+    );
+  }
 
   const language = (body.language ?? "en").toLowerCase().slice(0, 10);
   if (!isAllowedLanguage(language)) {
@@ -48,7 +57,14 @@ function parse(body: IntakeBody) {
 // Only block re-triggers while there's a call IN FLIGHT to this number.
 // Once Twilio reports a terminal status (no-answer / busy / completed / failed)
 // the candidate can immediately retry — common case is "I missed it, call me again."
+//
+// Stale-session guard: if Twilio's status callback never delivered (signature
+// failure during a domain cutover, network blip), a session can stick at
+// `ringing` forever and block the user. Treat anything older than 3 min as
+// dead and let the retry through.
+const STALE_RINGING_MS = 3 * 60_000;
 async function checkPhoneRateLimit(phone: string): Promise<boolean> {
+  const cutoff = new Date(Date.now() - STALE_RINGING_MS);
   const recent = await db()
     .select({ id: sessions.id })
     .from(sessions)
@@ -57,6 +73,7 @@ async function checkPhoneRateLimit(phone: string): Promise<boolean> {
       and(
         eq(candidates.phone, phone),
         inArray(sessions.status, ["ringing", "in_progress"]),
+        gt(sessions.startedAt, cutoff),
       ),
     )
     .limit(1);

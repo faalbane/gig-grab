@@ -12,6 +12,27 @@ import { eq, sql, inArray, and } from "drizzle-orm";
 import { getAuth } from "firebase-admin/auth";
 
 /**
+ * Defence in depth: every applyUrl persisted to jobs.structured_brief and
+ * later rendered into an <a href> on the dashboard. Adzuna's `redirect_url`
+ * is trustworthy in practice but the same column is also written by
+ * employer-side voice extraction (transcript-controlled). Reject anything
+ * that isn't an absolute http(s) URL so we can't end up with javascript:
+ * or data: schemes reaching the DOM.
+ */
+function safeHttpUrl(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Adzuna search-API client.
  *
  * Why Adzuna: official API (no scraping), free tier covers 1000
@@ -87,6 +108,25 @@ async function jobExistsForAdzunaId(adzunaId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+// Self-bootstrap: ensure the unique index exists so concurrent ingest
+// runs can't insert the same Adzuna row twice. Idempotent — no-op when
+// the index already exists. Run once per Cloud Run instance.
+let adzunaIndexEnsured = false;
+async function ensureAdzunaUniqueIndex(): Promise<void> {
+  if (adzunaIndexEnsured) return;
+  try {
+    await db().execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS jobs_adzuna_id_uniq
+      ON jobs ((structured_brief->>'adzunaId'))
+      WHERE structured_brief->>'source' = 'adzuna'
+        AND structured_brief->>'adzunaId' IS NOT NULL
+    `);
+    adzunaIndexEnsured = true;
+  } catch (err) {
+    console.warn("[adzuna] could not ensure unique index", err);
+  }
+}
+
 /**
  * POST /api/jobs/ingest/adzuna?country=gb&what=carpenter&where=manchester
  *
@@ -102,6 +142,7 @@ export async function jobsIngestAdzuna(
   req: Request,
   res: Response,
 ): Promise<void> {
+  await ensureAdzunaUniqueIndex();
   const secret = process.env.INGEST_SECRET;
   if (!secret) {
     res.status(500).json({ error: "INGEST_SECRET not configured" });
@@ -217,7 +258,7 @@ export async function jobsIngestAdzuna(
           country,
           company,
           category: r.category?.label ?? null,
-          applyUrl: r.redirect_url ?? null,
+          applyUrl: safeHttpUrl(r.redirect_url),
           description,
           createdAt: r.created ?? null,
         },
@@ -296,6 +337,7 @@ export async function jobsIngestAdzunaRefreshAll(
   req: Request,
   res: Response,
 ): Promise<void> {
+  await ensureAdzunaUniqueIndex();
   const secret = process.env.INGEST_SECRET;
   if (!secret) {
     res.status(500).json({ error: "INGEST_SECRET not configured" });
@@ -387,7 +429,7 @@ export async function jobsIngestAdzunaRefreshAll(
             country: q.country,
             company,
             category: row.category?.label ?? null,
-            applyUrl: row.redirect_url ?? null,
+            applyUrl: safeHttpUrl(row.redirect_url),
             description,
             createdAt: row.created ?? null,
           },
@@ -531,7 +573,7 @@ export async function accountJobsList(
       shiftPattern: r.shiftPattern,
       source: (brief.source as string) ?? null,
       country: (brief.country as string) ?? null,
-      applyUrl: (brief.applyUrl as string) ?? null,
+      applyUrl: safeHttpUrl(brief.applyUrl),
       createdAt: r.createdAt,
       applied: appliedJobIds.has(r.id),
     };

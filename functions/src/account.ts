@@ -81,13 +81,27 @@ async function ensureCandidateForUid(auth: AuthCtx) {
       .from(candidates)
       .where(eq(candidates.email, auth.email))
       .limit(1);
-    if (match && (!match.firebaseUid || match.firebaseUid === auth.uid)) {
-      [row] = await db()
-        .update(candidates)
-        .set({ firebaseUid: auth.uid })
-        .where(eq(candidates.id, match.id))
-        .returning();
-      if (row) return row;
+    // Only silently inherit an email-matched row when it's an unclaimed
+    // phone-stub (i.e. a hotline-onboarded user who never finished sign-in).
+    // A real-phone unclaimed row with the same email is a different
+    // person whose email was extracted from a call transcript — silently
+    // claiming would be account takeover.
+    if (match) {
+      const claimed = match.firebaseUid && match.firebaseUid !== auth.uid;
+      const pendingStub = match.phone.startsWith("pending-");
+      if (!claimed && (pendingStub || match.firebaseUid === auth.uid)) {
+        [row] = await db()
+          .update(candidates)
+          .set({ firebaseUid: auth.uid })
+          .where(eq(candidates.id, match.id))
+          .returning();
+        if (row) return row;
+      } else if (!claimed) {
+        console.warn(
+          `[account/ensure] email=${auth.email} matched candidate=${match.id} ` +
+            `with phone=${match.phone}; refusing silent claim (not a stub)`,
+        );
+      }
     }
   }
 
@@ -111,10 +125,18 @@ async function ensureCandidateForUid(auth: AuthCtx) {
 /**
  * POST /api/sessions/:id/extract-snapshot — run extractProfile mid-call
  * so the /voice CV preview updates in near-real-time as the candidate
- * speaks. Auth: Firebase bearer, plus the session must belong to the
- * signed-in candidate so users can't trigger Anthropic calls on
- * someone else's session.
+ * speaks. Auth: Firebase bearer + session ownership.
+ *
+ * $-burn guard: extractProfile invokes Claude Sonnet 4.6. The UI
+ * self-throttles to every 6 turns + 8 s, but devtools can replay this
+ * endpoint at any rate. Per-session in-memory bucket: minimum 5 s
+ * between calls + max 30 calls per session lifetime.
  */
+type SnapshotBucket = { last: number; count: number };
+const snapshotBuckets = new Map<string, SnapshotBucket>();
+const SNAPSHOT_MIN_GAP_MS = 5_000;
+const SNAPSHOT_MAX_PER_SESSION = 30;
+
 export async function sessionExtractSnapshot(
   req: Request,
   res: Response,
@@ -127,7 +149,7 @@ export async function sessionExtractSnapshot(
   }
   const candidate = await ensureCandidateForUid(auth);
   const [s] = await db()
-    .select({ candidateId: sessions.candidateId })
+    .select({ candidateId: sessions.candidateId, status: sessions.status })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .limit(1);
@@ -135,6 +157,26 @@ export async function sessionExtractSnapshot(
     res.status(403).json({ error: "not your session" });
     return;
   }
+  // No point burning Anthropic credit on a completed session — the
+  // post-call extractor has already run; the live preview UI shouldn't
+  // be asking.
+  if (s.status === "completed" || s.status === "abandoned" || s.status === "failed") {
+    res.status(409).json({ error: "session not live" });
+    return;
+  }
+
+  const now = Date.now();
+  const bucket = snapshotBuckets.get(sessionId) ?? { last: 0, count: 0 };
+  if (now - bucket.last < SNAPSHOT_MIN_GAP_MS) {
+    res.status(429).json({ error: "snapshot_rate_limited" });
+    return;
+  }
+  if (bucket.count >= SNAPSHOT_MAX_PER_SESSION) {
+    res.status(429).json({ error: "snapshot_quota_exceeded" });
+    return;
+  }
+  snapshotBuckets.set(sessionId, { last: now, count: bucket.count + 1 });
+
   try {
     const { extractProfile } = await import("./profile");
     await extractProfile(sessionId);
@@ -149,6 +191,11 @@ export async function sessionExtractSnapshot(
  * POST /api/account/email — set or update the signed-in candidate's
  * email. Used after the apply flow to collect an email for application
  * status updates without forcing email at sign-in. Idempotent.
+ *
+ * Hardening: refuse to set an email that already belongs to a different
+ * candidate row. Without this check a user could overwrite their email
+ * to a victim's address; any downstream lookup keyed on email (employer
+ * binding, account merge, alerts) would then return ambiguous rows.
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export async function accountEmailUpdate(
@@ -166,6 +213,17 @@ export async function accountEmailUpdate(
     return;
   }
   const candidate = await ensureCandidateForUid(auth);
+
+  const [collide] = await db()
+    .select({ id: candidates.id })
+    .from(candidates)
+    .where(eq(candidates.email, email))
+    .limit(1);
+  if (collide && collide.id !== candidate.id) {
+    res.status(409).json({ error: "email_in_use" });
+    return;
+  }
+
   await db()
     .update(candidates)
     .set({ email })
@@ -348,7 +406,11 @@ export async function accountWebCallStart(
   }
   const candidate = await ensureCandidateForUid(auth);
 
-  const language = (req.body?.language ?? candidate.language ?? "en") as string;
+  const rawLanguage = String(req.body?.language ?? candidate.language ?? "en")
+    .toLowerCase()
+    .slice(0, 10);
+  const { isAllowedLanguage } = await import("./security");
+  const language = isAllowedLanguage(rawLanguage) ? rawLanguage : "en";
   const audience =
     (req.body?.audience ?? "worker") === "employer" ? "employer" : "worker";
   const sessionId = randomUUID();

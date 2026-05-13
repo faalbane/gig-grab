@@ -3,7 +3,7 @@ import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
 import { db, sessions, candidates } from "@gig-grab/db";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { extractProfile } from "./profile";
 import { extractEmployerJob } from "./employer-extraction";
 import {
@@ -147,8 +147,13 @@ async function applyTwilioStatus(
     failed: "failed",
   };
   const mapped = map[status];
+  let transitioned = false;
   if (mapped) {
-    await db()
+    // Idempotent update: only transition from non-terminal → terminal once,
+    // so a Twilio retry/replay of a `completed` callback doesn't re-fire
+    // the paid extraction below. Drizzle returns the affected rows via
+    // .returning() — if empty, we already processed this status.
+    const updated = await db()
       .update(sessions)
       .set({
         status: mapped as
@@ -164,10 +169,17 @@ async function applyTwilioStatus(
             ? new Date()
             : undefined,
       })
-      .where(eq(sessions.id, sessionId));
+      .where(
+        and(
+          eq(sessions.id, sessionId),
+          ne(sessions.status, mapped as "completed"),
+        ),
+      )
+      .returning({ id: sessions.id });
+    transitioned = updated.length > 0;
   }
 
-  if (mapped === "completed") {
+  if (mapped === "completed" && transitioned) {
     // Route to the right extractor based on session.kind + cached
     // audience. Look up the row since Twilio's payload doesn't tell us.
     const [row] = await db()

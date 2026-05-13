@@ -10,6 +10,13 @@ import {
   maybeFlipSessionKind,
 } from "./intent";
 
+// Per-session in-memory cooldown for /admin/rerun-extract. Cloud Run
+// horizontal scale means this isn't bulletproof — but limits a leaked
+// INGEST_SECRET to N×(sessions/hour) extractions across N instances
+// rather than unlimited.
+const rerunCooldowns = new Map<string, number>();
+const RERUN_COOLDOWN_MS = 60 * 60 * 1000;
+
 /**
  * POST /api/admin/rerun-extract/:sessionId
  *
@@ -36,6 +43,8 @@ export async function adminRerunExtract(
     .select({
       kind: sessions.kind,
       candidateId: sessions.candidateId,
+      status: sessions.status,
+      endedAt: sessions.endedAt,
     })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
@@ -44,6 +53,21 @@ export async function adminRerunExtract(
     res.status(404).json({ error: "session not found" });
     return;
   }
+  // Only completed sessions are worth re-extracting. Running on
+  // in-progress / ringing sessions is paid Anthropic work that the
+  // post-call dispatcher will redo anyway.
+  if (!row.endedAt || row.status === "ringing" || row.status === "in_progress") {
+    res.status(409).json({ error: "session not completed" });
+    return;
+  }
+  // Per-session cooldown: at most one rerun per hour. Defends against an
+  // INGEST_SECRET leak being replayed to fan out paid extractions.
+  const cooldown = rerunCooldowns.get(sessionId) ?? 0;
+  if (Date.now() - cooldown < RERUN_COOLDOWN_MS) {
+    res.status(429).json({ error: "rerun_cooldown" });
+    return;
+  }
+  rerunCooldowns.set(sessionId, Date.now());
 
   try {
     if (row.kind === "employer_intake") {

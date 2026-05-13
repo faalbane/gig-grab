@@ -82,7 +82,14 @@ function renderPdf(card: Card): Promise<Buffer> {
     }
 
     // Credentials — degrees, certs, tickets, awards, memberships
-    if (card.ticketsAndCards.length) {
+    // Cap rendered arrays so a pathological profile (corrupt extraction,
+    // malicious input) can't drive pdfkit into unbounded CPU.
+    const PDF_MAX_CREDS = 30;
+    const PDF_MAX_PROJECTS = 15;
+    const credsToRender = card.ticketsAndCards.slice(0, PDF_MAX_CREDS);
+    const projectsToRender = card.recentProjects.slice(0, PDF_MAX_PROJECTS);
+
+    if (credsToRender.length) {
       doc.moveDown(1);
       doc
         .fillColor("#6b7280")
@@ -90,20 +97,20 @@ function renderPdf(card: Card): Promise<Buffer> {
         .fontSize(9)
         .text("CREDENTIALS", { characterSpacing: 1.4 });
       doc.moveDown(0.4).fillColor("#1f2937").font("Helvetica").fontSize(11);
-      card.ticketsAndCards.forEach((t) => {
+      credsToRender.forEach((t) => {
         doc.text(`• ${clean(t)}`);
       });
     }
 
     // Recent projects
-    if (card.recentProjects.length) {
+    if (projectsToRender.length) {
       doc.moveDown(1);
       doc
         .fillColor("#6b7280")
         .font("Helvetica-Bold")
         .fontSize(9)
         .text("RECENT PROJECTS", { characterSpacing: 1.4 });
-      card.recentProjects.forEach((p) => {
+      projectsToRender.forEach((p) => {
         doc.moveDown(0.5);
         const role = clean(p.role);
         const company = clean(p.company);

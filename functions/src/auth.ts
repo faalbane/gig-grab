@@ -69,8 +69,12 @@ export async function authLink(req: Request, res: Response): Promise<void> {
     }
   }
 
-  // 1) Explicit candidateId — must not be claimed by a different uid.
-  if (candidateId) {
+  // 1) Explicit candidateId — must not be claimed by a different uid AND
+  // the verified contact info on the token must match the candidate row.
+  // Without the contact match check, an attacker who learned/guessed a v4
+  // UUID could sign in via Google with any address and post the victim's
+  // candidate_id here to claim their profile.
+  if (!row && candidateId) {
     const [existing] = await db()
       .select()
       .from(candidates)
@@ -81,6 +85,22 @@ export async function authLink(req: Request, res: Response): Promise<void> {
       return;
     }
     if (existing) {
+      const phoneMatch = !!phone && existing.phone === phone;
+      const emailMatch =
+        emailVerified &&
+        !!email &&
+        !!existing.email &&
+        existing.email.toLowerCase() === email.toLowerCase();
+      const pendingStub = existing.phone.startsWith("pending-");
+      if (!phoneMatch && !emailMatch && !pendingStub) {
+        console.warn(
+          `[auth/link] path-1 rejected: candidateId=${candidateId} uid=${uid} ` +
+            `phone(token=${phone}, row=${existing.phone}) ` +
+            `email(token=${email}, row=${existing.email}) — no match`,
+        );
+        res.status(403).json({ error: "candidate not yours" });
+        return;
+      }
       [row] = await db()
         .update(candidates)
         .set({
@@ -105,19 +125,33 @@ export async function authLink(req: Request, res: Response): Promise<void> {
     console.log(`[auth/link] path 2 (phone match) → ${row?.id ?? "no match"}`);
   }
 
-  // 3) Verified email match — only if no phone path landed.
+  // 3) Verified email match — only if no phone path landed AND only when
+  // the matched row is unclaimed AND still a phone-stub. Without the
+  // phone-stub guard, an attacker who signs in with `victim@example.com`
+  // before the victim does would silently inherit a real hotline-built
+  // candidate row that happens to share the email (e.g. set via a prior
+  // Claude extraction).
   if (!row && email && emailVerified) {
     const [match] = await db()
       .select()
       .from(candidates)
       .where(sql`${candidates.email} = ${email}`)
       .limit(1);
-    if (match && (!match.firebaseUid || match.firebaseUid === uid)) {
-      [row] = await db()
-        .update(candidates)
-        .set({ firebaseUid: uid })
-        .where(eq(candidates.id, match.id))
-        .returning();
+    if (match) {
+      const claimed = match.firebaseUid && match.firebaseUid !== uid;
+      const pendingStub = match.phone.startsWith("pending-");
+      if (!claimed && (pendingStub || match.firebaseUid === uid)) {
+        [row] = await db()
+          .update(candidates)
+          .set({ firebaseUid: uid })
+          .where(eq(candidates.id, match.id))
+          .returning();
+      } else if (!claimed) {
+        console.warn(
+          `[auth/link] path-3 declined: email=${email} matched candidate=${match.id} ` +
+            `with phone=${match.phone}; not a pending stub, refusing silent claim`,
+        );
+      }
     }
   }
 

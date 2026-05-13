@@ -23,6 +23,20 @@ type AccountMe = {
 
 const HOTLINE = process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910";
 
+// Defence in depth — server validates applyUrl scheme on write/read but
+// older rows persisted before the validator may still contain garbage.
+// Never inline a string into <a href> without a scheme check.
+function safeHttpUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 export default function DashboardPage() {
   return (
     <Suspense fallback={<FullPageLoading />}>
@@ -624,20 +638,23 @@ function JobCard({
           >
             <IconPhone width={13} height={13} /> Call
           </a>
-          {job.applyUrl && (
-            <a
-              href={job.applyUrl}
-              target="_blank"
-              rel="noreferrer nofollow"
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
-              style={{
-                borderColor: "var(--gg-line-2)",
-                color: "var(--gg-ink)",
-              }}
-            >
-              Listing ↗
-            </a>
-          )}
+          {(() => {
+            const safeUrl = safeHttpUrl(job.applyUrl);
+            return safeUrl ? (
+              <a
+                href={safeUrl}
+                target="_blank"
+                rel="noreferrer nofollow"
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+                style={{
+                  borderColor: "var(--gg-line-2)",
+                  color: "var(--gg-ink)",
+                }}
+              >
+                Listing ↗
+              </a>
+            ) : null;
+          })()}
         </div>
       </div>
       {err && (
@@ -717,22 +734,25 @@ function AppliedConfirmation({
         >
           <strong className="font-bold">Application logged.</strong>{" "}
           We&apos;ll call you when {job.company ?? "the employer"} responds.
-          {job.applyUrl && (
-            <>
-              {" "}
-              You can also submit directly on{" "}
-              <a
-                href={job.applyUrl}
-                target="_blank"
-                rel="noreferrer nofollow"
-                className="font-bold underline"
-                style={{ color: "var(--gg-green-dark)" }}
-              >
-                their listing ↗
-              </a>
-              .
-            </>
-          )}
+          {(() => {
+            const safeUrl = safeHttpUrl(job.applyUrl);
+            return safeUrl ? (
+              <>
+                {" "}
+                You can also submit directly on{" "}
+                <a
+                  href={safeUrl}
+                  target="_blank"
+                  rel="noreferrer nofollow"
+                  className="font-bold underline"
+                  style={{ color: "var(--gg-green-dark)" }}
+                >
+                  their listing ↗
+                </a>
+                .
+              </>
+            ) : null;
+          })()}
         </p>
         <button
           type="button"

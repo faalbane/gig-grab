@@ -145,6 +145,28 @@ export function VoiceCallView() {
     };
   }, [turns.length, phase, session]);
 
+  // Hard cleanup hooks. Without these, a tab close mid-call leaves the
+  // mic LED on + the WS open until the browser eventually GCs the page
+  // — bad UX (mobile shows mic indicator persistently) and small leak
+  // server-side. Also tear down if the user signs out mid-call.
+  useEffect(() => {
+    const cleanup = () => {
+      controllerRef.current?.end().catch(() => {});
+    };
+    window.addEventListener("pagehide", cleanup);
+    window.addEventListener("beforeunload", cleanup);
+    return () => {
+      window.removeEventListener("pagehide", cleanup);
+      window.removeEventListener("beforeunload", cleanup);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (user === false) {
+      controllerRef.current?.end().catch(() => {});
+    }
+  }, [user]);
+
   // After the call ends, poll /account/me a few times to pick up the
   // freshly-extracted profile_card. extractProfile runs server-side
   // from the session status callback; we wait up to ~30s.

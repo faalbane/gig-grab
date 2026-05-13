@@ -79,10 +79,24 @@ async function health(_req: Request, res: Response): Promise<void> {
   });
 }
 
+// CORS allowlist — Firebase ID tokens are origin-scoped at the SDK
+// level, but `cors: true` reflects any Origin and is the wrong default
+// for an account API that owns destructive endpoints like DELETE /account.
+// Listed entries: production apex, legacy hosting alias kept during the
+// domain cutover, dev origins.
+const CORS_ORIGINS = [
+  /^https:\/\/giggrab\.io$/,
+  /^https:\/\/www\.giggrab\.io$/,
+  /^https:\/\/gig-grab\.web\.app$/,
+  /^https:\/\/gig-grab\.firebaseapp\.com$/,
+  /^http:\/\/localhost(?::\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(?::\d+)?$/,
+];
+
 export const api = onRequest(
   {
     region: "europe-west2",
-    cors: true,
+    cors: CORS_ORIGINS,
     secrets: SECRETS,
     timeoutSeconds: 60,
     memory: "512MiB",
