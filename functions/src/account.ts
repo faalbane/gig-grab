@@ -7,9 +7,11 @@ import {
   candidates,
   sessions,
   profileCards,
+  employers,
+  alerts,
   type ProfileProject,
 } from "@gig-grab/db";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { signSessionToken } from "./security";
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -20,6 +22,7 @@ type AuthCtx = {
   email: string | null;
   emailVerified: boolean;
   phone: string | null;
+  authTime: number; // seconds since epoch; freshness gate for destructive ops
 };
 
 async function decodeBearer(req: Request): Promise<AuthCtx | null> {
@@ -33,6 +36,7 @@ async function decodeBearer(req: Request): Promise<AuthCtx | null> {
       email: (decoded.email ?? null) as string | null,
       emailVerified: Boolean(decoded.email_verified),
       phone: (decoded.phone_number ?? null) as string | null,
+      authTime: Number(decoded.auth_time ?? 0),
     };
   } catch {
     return null;
@@ -376,14 +380,36 @@ export async function accountWebCallStart(
 }
 
 /**
- * DELETE /api/account — purge the signed-in candidate's row + cascade-linked
- * data (profile_card, sessions, transcript_turns, matches, interviews,
- * auto_apply_rules; alerts set-null per schema), then delete the Firebase
- * Auth user so they can re-onboard fresh — including as a different audience
- * (worker vs employer) reusing the same phone number.
+ * DELETE /api/account — purge the signed-in user's full footprint, both
+ * candidate-side and employer-side, so they can re-onboard fresh as either
+ * audience reusing the same phone or email.
  *
- * Auth: Firebase bearer. No body. Idempotent: missing rows are not an error.
+ * What gets wiped:
+ *   - candidates row (cascade: profile_cards, sessions, transcript_turns,
+ *     matches, interviews, auto_apply_rules)
+ *   - alerts rows for this candidate (explicit hard-delete; schema FK is
+ *     set-null but payload jsonb retains PII)
+ *   - employers rows linked via any of this user's sessions OR via the
+ *     verified email (cascade: jobs, ats_connections, employer-side
+ *     sessions, alerts.employer_id set-null)
+ *   - Firebase Auth user
+ *
+ * Auth gates:
+ *   - Bearer Firebase ID token
+ *   - auth_time within last 5 minutes (re-auth freshness — Firebase ID
+ *     tokens live up to 1 h; an attacker who steals one shouldn't be able
+ *     to nuke the account silently)
+ *   - candidate row must match auth.email OR auth.phone (defense in
+ *     depth against a stale firebase_uid linkage pointing to someone
+ *     else's row)
+ *
+ * Order: Firebase Auth user deleted FIRST. If that fails, DB is untouched
+ * and the user is still signed in. If DB delete then fails, orphaned
+ * rows are recoverable but no live uid points at them. Reverse order
+ * would leave the user signed in to an empty account on partial failure.
  */
+const DELETE_REAUTH_WINDOW_SEC = 5 * 60;
+
 export async function accountDelete(
   req: Request,
   res: Response,
@@ -394,27 +420,93 @@ export async function accountDelete(
     return;
   }
 
-  const row = await findCandidateByUid(auth.uid);
-  if (row) {
-    await db().delete(candidates).where(eq(candidates.id, row.id));
-    console.log(
-      `[account/delete] candidate=${row.id} phone=${row.phone} uid=${auth.uid.slice(0, 6)}`,
-    );
-  } else {
-    console.log(
-      `[account/delete] no candidate row for uid=${auth.uid.slice(0, 6)} — proceeding to auth delete`,
-    );
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (auth.authTime === 0 || nowSec - auth.authTime > DELETE_REAUTH_WINDOW_SEC) {
+    res.status(401).json({
+      error: "reauth_required",
+      message: "Please sign in again, then retry deleting your account.",
+    });
+    return;
   }
 
+  const row = await findCandidateByUid(auth.uid);
+  if (row) {
+    // Defense in depth: a future bug in phone/email linking could leave a
+    // uid pointing at the wrong candidate row. Refuse delete unless the
+    // verified contact actually matches.
+    const emailMatch =
+      auth.emailVerified &&
+      !!auth.email &&
+      !!row.email &&
+      row.email.toLowerCase() === auth.email.toLowerCase();
+    const phoneMatch = !!auth.phone && !!row.phone && row.phone === auth.phone;
+    if (!emailMatch && !phoneMatch) {
+      console.warn(
+        `[account/delete] identity mismatch uid=${auth.uid.slice(0, 6)} ` +
+          `candidate=${row.id} — refusing delete`,
+      );
+      res.status(403).json({ error: "identity_mismatch" });
+      return;
+    }
+  }
+
+  // Resolve every employer this user is on the hook for. Two sources:
+  //   (a) sessions.employerId for sessions owned by this candidate
+  //   (b) employers.email matching the verified email (covers cases
+  //       where the employer row was created on a session that has
+  //       since been deleted, or pre-existed the candidate row)
+  const employerIds = new Set<string>();
+  if (row) {
+    const sessRows = await db()
+      .select({ eid: sessions.employerId })
+      .from(sessions)
+      .where(
+        and(eq(sessions.candidateId, row.id), isNotNull(sessions.employerId)),
+      );
+    for (const r of sessRows) if (r.eid) employerIds.add(r.eid);
+  }
+  if (auth.emailVerified && auth.email) {
+    const emRows = await db()
+      .select({ id: employers.id })
+      .from(employers)
+      .where(eq(employers.email, auth.email));
+    for (const r of emRows) employerIds.add(r.id);
+  }
+
+  // Firebase Auth FIRST — see header comment for ordering rationale.
   try {
     await getAuth().deleteUser(auth.uid);
   } catch (err) {
     const e = err as { code?: string };
     if (e?.code !== "auth/user-not-found") {
       console.error("[account/delete] firebase auth delete failed", err);
-      res.status(500).json({ error: "auth delete failed" });
+      res.status(500).json({ error: "auth_delete_failed" });
       return;
     }
+  }
+
+  // From here on we're committed — log so a partial failure is recoverable.
+  console.log(
+    `[account/delete] uid=${auth.uid.slice(0, 6)} ` +
+      `candidate=${row?.id ?? "none"} ` +
+      `phone=${row?.phone ?? "none"} ` +
+      `employers=[${[...employerIds].join(",")}] ` +
+      `at=${new Date().toISOString()}`,
+  );
+
+  if (row) {
+    // alerts.payload jsonb contains PII (name, role, transcript snippets).
+    // Schema FK is set-null which keeps the payload alive — explicit
+    // delete for GDPR right-to-erasure compliance.
+    await db().delete(alerts).where(eq(alerts.candidateId, row.id));
+  }
+
+  if (employerIds.size > 0) {
+    await db().delete(employers).where(inArray(employers.id, [...employerIds]));
+  }
+
+  if (row) {
+    await db().delete(candidates).where(eq(candidates.id, row.id));
   }
 
   res.json({ ok: true });

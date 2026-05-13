@@ -40,6 +40,7 @@ export function SettingsCard() {
 
   // Delete-account state
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const deleteArmed = deleteConfirm.trim() === "DELETE";
   const [deleting, setDeleting] = useState(false);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
 
@@ -49,9 +50,18 @@ export function SettingsCard() {
     try {
       await fetchWithAuth("/api/account", { method: "DELETE" });
       await signOutCurrentUser();
-      window.location.href = "/?deleted=1";
+      window.location.href = "/";
     } catch (err) {
-      setDeleteErr(err instanceof Error ? err.message : "Couldn't delete account.");
+      const msg = err instanceof Error ? err.message : "Couldn't delete account.";
+      // Backend rejects ID tokens older than 5 minutes for destructive
+      // ops. Bounce the user through /auth so they re-enter credentials,
+      // then return to /settings to retry.
+      if (msg === "reauth_required" || msg.includes("sign in again")) {
+        await signOutCurrentUser();
+        window.location.href = "/auth?returnTo=/settings&reauth=delete";
+        return;
+      }
+      setDeleteErr(msg);
       setDeleting(false);
     }
   }
@@ -283,7 +293,7 @@ export function SettingsCard() {
           <button
             type="button"
             onClick={deleteAccount}
-            disabled={deleting || deleteConfirm !== "DELETE"}
+            disabled={deleting || !deleteArmed}
             className="w-full rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:bg-gray-300"
           >
             {deleting ? "Deleting…" : "Delete my account"}
