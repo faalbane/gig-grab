@@ -61,6 +61,24 @@ function DashboardPageInner() {
     }
     let cancelled = false;
     (async () => {
+      // Audience auto-route: if the signed-in user resolves to an
+      // employer row (claimed firebase_uid OR claimable via verified
+      // email OR linked via a prior employer_intake hotline session),
+      // bounce to the hiring dashboard. Honour ?force=worker to
+      // override when the user has both rows.
+      if (params.get("force") !== "worker") {
+        try {
+          const emp = await fetchWithAuth<{ employer: { id: string } | null }>(
+            "/api/account/employer/me",
+          );
+          if (!cancelled && emp.employer) {
+            window.location.replace("/dashboard/hiring");
+            return;
+          }
+        } catch {
+          // Non-fatal — fall through to candidate dashboard.
+        }
+      }
       try {
         const data = await fetchWithAuth<AccountMe>("/api/account/me");
         if (!cancelled) setMe(data);
@@ -73,7 +91,7 @@ function DashboardPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, params]);
 
   if (user === null) {
     return <FullPageLoading />;

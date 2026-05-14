@@ -33,8 +33,10 @@ import {
   jobs,
   profileCards,
   matches,
+  candidates,
+  sessions,
 } from "@gig-grab/db";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { topCandidatesForJob } from "./embeddings";
 
 type AuthCtx = {
@@ -81,6 +83,46 @@ async function resolveEmployer(auth: AuthCtx) {
         .where(eq(employers.id, byEmail.id))
         .returning();
       return claimed;
+    }
+  }
+
+  // Phone-OTP path: employers row has no phone column, but the
+  // candidate row keyed to this uid may have employer_intake sessions
+  // attached to an employers row. Claim by that linkage so cofounders
+  // who sign in via phone after a hotline employer call land on the
+  // hiring dashboard.
+  const [cand] = await db()
+    .select({ id: candidates.id })
+    .from(candidates)
+    .where(eq(candidates.firebaseUid, auth.uid))
+    .limit(1);
+  if (cand) {
+    const [linkedSession] = await db()
+      .select({ employerId: sessions.employerId })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.candidateId, cand.id),
+          eq(sessions.kind, "employer_intake"),
+          isNotNull(sessions.employerId),
+        ),
+      )
+      .orderBy(sql`${sessions.startedAt} desc`)
+      .limit(1);
+    if (linkedSession?.employerId) {
+      const [emp] = await db()
+        .select()
+        .from(employers)
+        .where(eq(employers.id, linkedSession.employerId))
+        .limit(1);
+      if (emp && (!emp.firebaseUid || emp.firebaseUid === auth.uid)) {
+        const [claimed] = await db()
+          .update(employers)
+          .set({ firebaseUid: auth.uid })
+          .where(eq(employers.id, emp.id))
+          .returning();
+        return claimed;
+      }
     }
   }
 

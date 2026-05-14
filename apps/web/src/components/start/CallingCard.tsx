@@ -29,10 +29,16 @@ function CallingCardInner() {
   const token = params.get("token") ?? "";
   const language = findLanguage(langCode);
 
-  const profileHref =
-    sessionId && token
+  const isEmployer = audience === "employer";
+  // Employer intake routes to the hiring dashboard, not the candidate
+  // profile. The token-gated /profile page would render their CV which
+  // is the wrong artifact for someone who called to post a job.
+  const profileHref = isEmployer
+    ? "/dashboard/hiring"
+    : sessionId && token
       ? `/profile?sessionId=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(token)}`
       : "/profile";
+  const ctaLabel = isEmployer ? "See my job →" : "Skip to my profile →";
 
   const [status, setStatus] = useState<SessionStatus>("ringing");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -152,7 +158,7 @@ function CallingCardInner() {
         href={profileHref}
         className="mt-6 block w-full rounded-md bg-gray-900 px-5 py-3 text-center text-sm font-medium text-white hover:bg-gray-800"
       >
-        Skip to my profile →
+        {ctaLabel}
       </a>
     </div>
   );
