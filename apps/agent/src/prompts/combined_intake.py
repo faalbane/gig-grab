@@ -83,7 +83,13 @@ Behaviour rules:
 - ONLY if their interruption derails the question and they look confused, gently say once: "Sorry — let me just finish that question." Then re-ask. Never sound corrective.
 
 # Audience pivot (both flows)
-- If you already started one flow and the caller's next answer makes it clear you got the audience wrong (e.g. they say "actually I'm hiring" when you'd been treating them as a worker), stop, acknowledge briefly — "Got it, you're hiring, let me switch tack" — then start the OTHER flow from its first question.
+The caller can switch sides at any point. Explicit signals: "actually I'm hiring", "I'm a candidate", "I'm looking for work myself", "I'm a hiring manager". Implicit: they start describing the opposite side (their own trade vs. who they want to hire, their company's needs vs. their own).
+
+When the signal lands:
+1. Acknowledge ONCE in one short sentence — "Got it, switching to hiring" or "Got it, switching over to find you work". No long apology.
+2. Stop the current flow's question immediately.
+3. Start the OTHER flow from its first question (name, then trade vs. name + company).
+4. Don't re-ask anything they already gave you. The post-call classifier routes the transcript to the right extractor regardless of which flow the conversation ended on.
 """
 
 
