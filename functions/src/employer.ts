@@ -447,14 +447,22 @@ export async function employerMe(req: Request, res: Response): Promise<void> {
     .where(eq(jobs.employerId, emp.id))
     .orderBy(sql`${jobs.createdAt} desc`);
 
-  // Cheap per-job match-count: count candidates whose existing
-  // `matches` row points at this job. Not full top-K — that's the
-  // drill-down endpoint.
-  const counts = new Map<string, number>();
+  // Per-job stats split by match.status. Cheap GROUP BY status query —
+  // bucket on the way back. UI shows applied / interviewing /
+  // shortlisted as distinct numbers so an employer can tell how far
+  // the pipeline has moved on each job at a glance.
+  type StatBucket = {
+    matchCount: number;
+    appliedCount: number;
+    interviewingCount: number;
+    shortlistedCount: number;
+  };
+  const stats = new Map<string, StatBucket>();
   if (jobRows.length > 0) {
-    const countRows = await db()
+    const rows = await db()
       .select({
         jobId: matches.jobId,
+        status: matches.status,
         n: sql<number>`count(*)::int`,
       })
       .from(matches)
@@ -464,8 +472,21 @@ export async function employerMe(req: Request, res: Response): Promise<void> {
           jobRows.map((j) => j.id),
         ),
       )
-      .groupBy(matches.jobId);
-    for (const r of countRows) counts.set(r.jobId, Number(r.n));
+      .groupBy(matches.jobId, matches.status);
+    for (const r of rows) {
+      const b = stats.get(r.jobId) ?? {
+        matchCount: 0,
+        appliedCount: 0,
+        interviewingCount: 0,
+        shortlistedCount: 0,
+      };
+      const n = Number(r.n);
+      b.matchCount += n;
+      if (r.status === "applied") b.appliedCount += n;
+      if (r.status === "screened") b.interviewingCount += n;
+      if (r.status === "shortlisted") b.shortlistedCount += n;
+      stats.set(r.jobId, b);
+    }
   }
 
   res.json({
@@ -474,10 +495,15 @@ export async function employerMe(req: Request, res: Response): Promise<void> {
       email: emp.email,
       company: emp.company,
     },
-    jobs: jobRows.map((j) => ({
-      ...j,
-      matchCount: counts.get(j.id) ?? 0,
-    })),
+    jobs: jobRows.map((j) => {
+      const s = stats.get(j.id) ?? {
+        matchCount: 0,
+        appliedCount: 0,
+        interviewingCount: 0,
+        shortlistedCount: 0,
+      };
+      return { ...j, ...s };
+    }),
   });
 }
 

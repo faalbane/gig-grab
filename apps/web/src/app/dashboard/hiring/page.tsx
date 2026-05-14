@@ -17,6 +17,9 @@ type EmployerJob = {
   createdAt: string;
   mustHaves: string[] | null;
   matchCount: number;
+  appliedCount: number;
+  interviewingCount: number;
+  shortlistedCount: number;
 };
 
 type EmployerMe = {
@@ -226,167 +229,304 @@ export default function EmployerDashboardPage() {
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-7xl px-6 py-10">
-        <ModeToggle active="hiring" />
-        {err && (
-          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            {err}
-          </p>
-        )}
+      <main
+        className="flex-1"
+        style={{
+          background:
+            "radial-gradient(ellipse at 50% 0%, var(--gg-green-tint-2) 0%, transparent 45%), var(--gg-bg)",
+        }}
+      >
+        <div className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
+          <ModeToggle active="hiring" />
+          {err && (
+            <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {err}
+            </p>
+          )}
 
-        {!me ? (
-          <p className="text-sm text-gray-500">Loading your jobs…</p>
-        ) : !me.employer ? (
-          <EmptyEmployerState />
-        ) : (
-          <>
-            <div className="mb-6 flex items-end justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
+          {!me ? (
+            <p className="text-sm text-gray-500">Loading your jobs…</p>
+          ) : !me.employer ? (
+            <EmptyEmployerState />
+          ) : (
+            <>
+              <div className="mb-6">
+                <p
+                  className="mono text-xs font-semibold uppercase"
+                  style={{
+                    color: "var(--gg-green-dark)",
+                    letterSpacing: "0.14em",
+                  }}
+                >
                   Hiring at {me.employer.company}
                 </p>
-                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-gray-900">
-                  Your jobs
+                <h1
+                  className="m-0 mt-1.5 text-3xl font-extrabold tracking-tight sm:text-[34px]"
+                  style={{ color: "var(--gg-ink)" }}
+                >
+                  Your hiring pipeline
                 </h1>
               </div>
-              <Link
-                href="/voice?audience=employer"
-                className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:border-emerald-300"
-              >
-                + Post another role
-              </Link>
-            </div>
 
-            <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Stat
-                label="Active jobs"
-                value={String(me.jobs.filter((j) => j.status === "active").length)}
-              />
-              <Stat
-                label="Total matches"
-                value={String(me.jobs.reduce((n, j) => n + j.matchCount, 0))}
-              />
-              <Stat label="Jobs posted" value={String(me.jobs.length)} />
-              <Stat label="Avg req. count" value={
-                me.jobs.length
-                  ? String(
-                      Math.round(
-                        me.jobs.reduce((n, j) => n + j.requiredCount, 0) /
-                          me.jobs.length,
-                      ),
-                    )
-                  : "0"
-              } />
-            </div>
+              <PostRoleCard hasJobs={me.jobs.length > 0} />
 
-            <div className="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white">
+              <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat
+                  label="Active jobs"
+                  value={String(
+                    me.jobs.filter((j) => j.status === "active").length,
+                  )}
+                />
+                <Stat
+                  label="Applicants"
+                  value={String(
+                    me.jobs.reduce((n, j) => n + j.appliedCount, 0),
+                  )}
+                />
+                <Stat
+                  label="Interviewing"
+                  value={String(
+                    me.jobs.reduce((n, j) => n + j.interviewingCount, 0),
+                  )}
+                />
+                <Stat
+                  label="Shortlisted"
+                  value={String(
+                    me.jobs.reduce((n, j) => n + j.shortlistedCount, 0),
+                  )}
+                />
+              </div>
+
               {me.jobs.length === 0 ? (
-                <p className="px-6 py-10 text-center text-sm text-gray-500">
-                  No jobs yet. Call our hotline or use{" "}
-                  <Link href="/hiring" className="text-emerald-700 underline">
-                    /hiring
-                  </Link>{" "}
-                  to post your first role.
+                <p className="mt-6 rounded-2xl border border-dashed bg-white p-8 text-center text-sm text-gray-500" style={{ borderColor: "var(--gg-line-2)" }}>
+                  No jobs yet. Use the button above to post your first role.
                 </p>
               ) : (
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-xs font-medium text-gray-600">
-                    <tr>
-                      <th className="px-5 py-3 text-left">Job</th>
-                      <th className="px-5 py-3 text-left">Location · Pay</th>
-                      <th className="px-5 py-3 text-left">Needed</th>
-                      <th className="px-5 py-3 text-left">Matches</th>
-                      <th className="px-5 py-3 text-left">Status</th>
-                      <th className="px-5 py-3"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {me.jobs.map((j) => (
-                      <>
-                        <tr key={j.id} className="hover:bg-gray-50">
-                          <td className="px-5 py-4 font-medium text-gray-900">
-                            {j.title}
-                          </td>
-                          <td className="px-5 py-4 text-gray-700">
-                            {j.location}
-                            {j.pay && ` · ${j.pay}`}
-                          </td>
-                          <td className="px-5 py-4 text-gray-700">
-                            {j.requiredCount}
-                          </td>
-                          <td className="px-5 py-4 text-emerald-700">
-                            {j.matchCount}
-                          </td>
-                          <td className="px-5 py-4">
-                            <select
-                              value={j.status}
-                              onChange={(e) => setJobStatus(j.id, e.target.value)}
-                              className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs"
-                            >
-                              <option value="active">Active</option>
-                              <option value="interviewing">Interviewing</option>
-                              <option value="paused">Paused</option>
-                              <option value="filled">Filled</option>
-                            </select>
-                          </td>
-                          <td className="px-5 py-4">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (expandedJobId === j.id) {
-                                  setExpandedJobId(null);
-                                } else {
-                                  setExpandedJobId(j.id);
-                                  if (!panelView[j.id]) {
-                                    setPanelView((p) => ({ ...p, [j.id]: "matches" }));
-                                  }
-                                  if (!matches[j.id]) openMatches(j.id);
-                                }
-                              }}
-                              className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium hover:border-gray-300"
-                            >
-                              {expandedJobId === j.id ? "Hide" : "Open"}
-                            </button>
-                          </td>
-                        </tr>
-                        {expandedJobId === j.id && (
-                          <tr key={`${j.id}-panel`}>
-                            <td colSpan={6} className="bg-gray-50 px-5 py-4">
-                              <JobPanel
-                                jobId={j.id}
-                                job={j}
-                                view={panelView[j.id] ?? "matches"}
-                                onViewChange={(v) => {
-                                  setPanelView((p) => ({ ...p, [j.id]: v }));
-                                  if (v === "applicants" && !applicants[j.id]) {
-                                    loadApplicants(j.id);
-                                  }
-                                }}
-                                matchesData={matches[j.id]}
-                                applicantsData={applicants[j.id]}
-                                loadingMatches={loadingMatches === j.id}
-                                reranking={reranking === j.id}
-                                onRerank={() => openMatches(j.id, true)}
-                                onAction={(cid, action) =>
-                                  candidateAction(j.id, cid, action)
-                                }
-                                onSaveEdits={(patch) =>
-                                  updateJobFields(j.id, patch)
-                                }
-                              />
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    ))}
-                  </tbody>
-                </table>
+                <ul className="mt-6 space-y-4">
+                  {me.jobs.map((j) => (
+                    <li key={j.id}>
+                      <JobTile
+                        job={j}
+                        expanded={expandedJobId === j.id}
+                        onToggle={() => {
+                          if (expandedJobId === j.id) {
+                            setExpandedJobId(null);
+                          } else {
+                            setExpandedJobId(j.id);
+                            if (!panelView[j.id]) {
+                              setPanelView((p) => ({ ...p, [j.id]: "matches" }));
+                            }
+                            if (!matches[j.id]) openMatches(j.id);
+                          }
+                        }}
+                        onStatusChange={(v) => setJobStatus(j.id, v)}
+                      />
+                      {expandedJobId === j.id && (
+                        <div
+                          className="mt-2 rounded-2xl border bg-white p-5"
+                          style={{ borderColor: "var(--gg-line)" }}
+                        >
+                          <JobPanel
+                            jobId={j.id}
+                            job={j}
+                            view={panelView[j.id] ?? "matches"}
+                            onViewChange={(v) => {
+                              setPanelView((p) => ({ ...p, [j.id]: v }));
+                              if (v === "applicants" && !applicants[j.id]) {
+                                loadApplicants(j.id);
+                              }
+                            }}
+                            matchesData={matches[j.id]}
+                            applicantsData={applicants[j.id]}
+                            loadingMatches={loadingMatches === j.id}
+                            reranking={reranking === j.id}
+                            onRerank={() => openMatches(j.id, true)}
+                            onAction={(cid, action) =>
+                              candidateAction(j.id, cid, action)
+                            }
+                            onSaveEdits={(patch) =>
+                              updateJobFields(j.id, patch)
+                            }
+                          />
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </main>
     </>
+  );
+}
+
+function PostRoleCard({ hasJobs }: { hasJobs: boolean }) {
+  return (
+    <div
+      className="rounded-2xl border bg-white p-5"
+      style={{ borderColor: "var(--gg-line)" }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p
+            className="m-0 text-[16px] font-bold tracking-tight"
+            style={{ color: "var(--gg-ink)" }}
+          >
+            {hasJobs ? "Post another role" : "Post your first role"}
+          </p>
+          <p
+            className="mt-0.5 text-sm"
+            style={{ color: "var(--gg-muted)" }}
+          >
+            Describe the role in ~2 minutes. Sarah builds the posting as you talk.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/voice?audience=employer"
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-bold text-white"
+            style={{ background: "var(--gg-green)" }}
+          >
+            Start hiring (use my mic) →
+          </Link>
+          <a
+            href={`tel:${(process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910").replace(/\s/g, "")}`}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-4 text-sm font-semibold"
+            style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+          >
+            Call the hotline
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function JobTile({
+  job,
+  expanded,
+  onToggle,
+  onStatusChange,
+}: {
+  job: EmployerJob;
+  expanded: boolean;
+  onToggle: () => void;
+  onStatusChange: (v: string) => void;
+}) {
+  const statusBg =
+    job.status === "active"
+      ? "var(--gg-green-tint-2)"
+      : job.status === "interviewing"
+        ? "#DBEAFE"
+        : job.status === "filled"
+          ? "#F3F4F6"
+          : "#FEF3C7";
+  const statusColor =
+    job.status === "active"
+      ? "var(--gg-green-deep)"
+      : job.status === "interviewing"
+        ? "#1E40AF"
+        : job.status === "filled"
+          ? "#374151"
+          : "#92400E";
+  return (
+    <article
+      className="rounded-2xl border bg-white p-5 transition-shadow hover:shadow-sm"
+      style={{ borderColor: "var(--gg-line)" }}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3
+              className="m-0 text-[17px] font-bold tracking-tight"
+              style={{ color: "var(--gg-ink)" }}
+            >
+              {job.title}
+            </h3>
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+              style={{ background: statusBg, color: statusColor, letterSpacing: "0.08em" }}
+            >
+              {job.status}
+            </span>
+          </div>
+          <p className="mt-1 text-sm" style={{ color: "var(--gg-ink-2)" }}>
+            {[job.location, job.pay].filter(Boolean).join(" · ")}
+          </p>
+          <p
+            className="mt-1 mono text-xs"
+            style={{ color: "var(--gg-muted)", letterSpacing: "0.04em" }}
+          >
+            {job.requiredCount} needed · posted {new Date(job.createdAt).toLocaleDateString()}
+          </p>
+        </div>
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+          <select
+            value={job.status}
+            onChange={(e) => onStatusChange(e.target.value)}
+            className="rounded-md border bg-white px-2 py-1.5 text-xs"
+            style={{ borderColor: "var(--gg-line-2)" }}
+          >
+            <option value="active">Active</option>
+            <option value="interviewing">Interviewing</option>
+            <option value="paused">Paused</option>
+            <option value="filled">Filled</option>
+          </select>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-10 items-center rounded-lg px-4 text-xs font-bold text-white"
+            style={{ background: "var(--gg-ink)" }}
+          >
+            {expanded ? "Hide" : "Open"}
+          </button>
+        </div>
+      </div>
+
+      <dl className="mt-4 grid grid-cols-3 gap-3">
+        <TileStat label="Applicants" value={job.appliedCount} tone="green" />
+        <TileStat label="Interviewing" value={job.interviewingCount} tone="blue" />
+        <TileStat label="Shortlisted" value={job.shortlistedCount} tone="emerald" />
+      </dl>
+    </article>
+  );
+}
+
+function TileStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "green" | "blue" | "emerald";
+}) {
+  const bg =
+    tone === "green"
+      ? "var(--gg-green-tint-2)"
+      : tone === "blue"
+        ? "#EFF6FF"
+        : "#ECFDF5";
+  const color =
+    tone === "green"
+      ? "var(--gg-green-deep)"
+      : tone === "blue"
+        ? "#1E40AF"
+        : "var(--gg-green-dark)";
+  return (
+    <div className="rounded-xl p-3" style={{ background: bg }}>
+      <dt
+        className="text-[10px] font-semibold uppercase tracking-wider"
+        style={{ color }}
+      >
+        {label}
+      </dt>
+      <dd className="mt-0.5 text-xl font-extrabold" style={{ color }}>
+        {value}
+      </dd>
+    </div>
   );
 }
 
