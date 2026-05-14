@@ -61,7 +61,7 @@ type ApplicantsResponse = {
   applicants: Applicant[];
 };
 
-type View = "matches" | "applicants";
+type View = "matches" | "applicants" | "edit";
 
 export default function EmployerDashboardPage() {
   const user = useAuthUser();
@@ -102,6 +102,44 @@ export default function EmployerDashboardPage() {
       );
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't update status.");
+    }
+  }
+
+  async function updateJobFields(
+    jobId: string,
+    patch: {
+      title?: string;
+      location?: string;
+      pay?: string;
+      requiredCount?: number;
+    },
+  ) {
+    try {
+      await fetchWithAuth(`/api/account/employer/jobs/${jobId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      setMe((prev) =>
+        prev
+          ? {
+              ...prev,
+              jobs: prev.jobs.map((j) =>
+                j.id === jobId
+                  ? {
+                      ...j,
+                      title: patch.title ?? j.title,
+                      location: patch.location ?? j.location,
+                      pay: patch.pay !== undefined ? patch.pay || null : j.pay,
+                      requiredCount: patch.requiredCount ?? j.requiredCount,
+                    }
+                  : j,
+              ),
+            }
+          : prev,
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't update job.");
+      throw e;
     }
   }
 
@@ -316,6 +354,7 @@ export default function EmployerDashboardPage() {
                             <td colSpan={6} className="bg-gray-50 px-5 py-4">
                               <JobPanel
                                 jobId={j.id}
+                                job={j}
                                 view={panelView[j.id] ?? "matches"}
                                 onViewChange={(v) => {
                                   setPanelView((p) => ({ ...p, [j.id]: v }));
@@ -330,6 +369,9 @@ export default function EmployerDashboardPage() {
                                 onRerank={() => openMatches(j.id, true)}
                                 onAction={(cid, action) =>
                                   candidateAction(j.id, cid, action)
+                                }
+                                onSaveEdits={(patch) =>
+                                  updateJobFields(j.id, patch)
                                 }
                               />
                             </td>
@@ -350,6 +392,7 @@ export default function EmployerDashboardPage() {
 
 function JobPanel({
   jobId,
+  job,
   view,
   onViewChange,
   matchesData,
@@ -358,8 +401,10 @@ function JobPanel({
   reranking,
   onRerank,
   onAction,
+  onSaveEdits,
 }: {
   jobId: string;
+  job: EmployerJob;
   view: View;
   onViewChange: (v: View) => void;
   matchesData?: MatchesResponse;
@@ -371,6 +416,12 @@ function JobPanel({
     candidateId: string,
     action: "shortlist" | "reject" | "request_interview",
   ) => void;
+  onSaveEdits: (patch: {
+    title?: string;
+    location?: string;
+    pay?: string;
+    requiredCount?: number;
+  }) => Promise<void>;
 }) {
   void jobId;
   return (
@@ -400,6 +451,17 @@ function JobPanel({
             Applicants
             {applicantsData ? ` (${applicantsData.applicants.length})` : ""}
           </button>
+          <button
+            type="button"
+            onClick={() => onViewChange("edit")}
+            className={`rounded-md px-3 py-1 font-medium transition-all ${
+              view === "edit"
+                ? "bg-gray-900 text-white"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            Edit
+          </button>
         </div>
         {view === "matches" && matchesData && matchesData.candidates.length > 0 && (
           <button
@@ -417,7 +479,9 @@ function JobPanel({
         )}
       </div>
 
-      {view === "matches" ? (
+      {view === "edit" ? (
+        <EditJobForm job={job} onSave={onSaveEdits} />
+      ) : view === "matches" ? (
         loadingMatches ? (
           <p className="text-sm text-gray-500">Finding matches…</p>
         ) : !matchesData || matchesData.candidates.length === 0 ? (
@@ -574,6 +638,165 @@ function CandidateActions({
         {currentStatus === "rejected" ? "Rejected" : "Reject"}
       </button>
     </div>
+  );
+}
+
+function EditJobForm({
+  job,
+  onSave,
+}: {
+  job: EmployerJob;
+  onSave: (patch: {
+    title?: string;
+    location?: string;
+    pay?: string;
+    requiredCount?: number;
+  }) => Promise<void>;
+}) {
+  const [title, setTitle] = useState(job.title);
+  const [location, setLocation] = useState(job.location);
+  const [pay, setPay] = useState(job.pay ?? "");
+  const [requiredCount, setRequiredCount] = useState<number>(job.requiredCount);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const dirty =
+    title !== job.title ||
+    location !== job.location ||
+    (pay || "") !== (job.pay ?? "") ||
+    requiredCount !== job.requiredCount;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!dirty || saving) return;
+    setSaving(true);
+    setErr(null);
+    setSaved(false);
+    try {
+      const patch: {
+        title?: string;
+        location?: string;
+        pay?: string;
+        requiredCount?: number;
+      } = {};
+      if (title !== job.title) patch.title = title.trim();
+      if (location !== job.location) patch.location = location.trim();
+      if ((pay || "") !== (job.pay ?? "")) patch.pay = pay.trim();
+      if (requiredCount !== job.requiredCount)
+        patch.requiredCount = requiredCount;
+      await onSave(patch);
+      setSaved(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Save failed.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function reset() {
+    setTitle(job.title);
+    setLocation(job.location);
+    setPay(job.pay ?? "");
+    setRequiredCount(job.requiredCount);
+    setSaved(false);
+    setErr(null);
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Job title">
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={240}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+        </Field>
+        <Field label="Location">
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            maxLength={240}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+        </Field>
+        <Field label="Pay (free text)" hint="e.g. $80k–$95k, £250/day, $25/hour">
+          <input
+            type="text"
+            value={pay}
+            onChange={(e) => setPay(e.target.value)}
+            maxLength={120}
+            placeholder="—"
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+        </Field>
+        <Field label="Workers needed">
+          <input
+            type="number"
+            min={1}
+            value={requiredCount}
+            onChange={(e) =>
+              setRequiredCount(Math.max(1, Number(e.target.value) || 1))
+            }
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+        </Field>
+      </div>
+      {err && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+          {err}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="submit"
+          disabled={!dirty || saving}
+          className="rounded-md bg-gray-900 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save changes"}
+        </button>
+        {dirty && !saving && (
+          <button
+            type="button"
+            onClick={reset}
+            className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+          >
+            Cancel
+          </button>
+        )}
+        {saved && !dirty && (
+          <span className="text-xs text-emerald-700">Saved ✓</span>
+        )}
+      </div>
+      <p className="text-[11px] text-gray-500">
+        Status (active / paused / interviewing / filled) is edited from the
+        dropdown in the row above. Must-haves and deal-breakers are still
+        re-extracted from your call transcript — to change them, post the
+        role again or contact us.
+      </p>
+    </form>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="block text-xs font-medium text-gray-700">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-[10px] text-gray-500">{hint}</span>}
+    </label>
   );
 }
 
