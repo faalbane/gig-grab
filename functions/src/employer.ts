@@ -129,6 +129,293 @@ async function resolveEmployer(auth: AuthCtx) {
   return null;
 }
 
+type JobStatus = "active" | "interviewing" | "paused" | "filled";
+const VALID_JOB_STATUSES: JobStatus[] = [
+  "active",
+  "interviewing",
+  "paused",
+  "filled",
+];
+
+type ApplicantStatus = "applied" | "screened" | "shortlisted" | "rejected";
+const APPLICANT_STATUSES: ApplicantStatus[] = [
+  "applied",
+  "screened",
+  "shortlisted",
+  "rejected",
+];
+
+/**
+ * PATCH /api/account/employer/jobs/:id — employer-side mutation.
+ * Pilot scope: status toggle only (active|interviewing|paused|filled).
+ * Filled/paused jobs are filtered out of the public candidate feed
+ * by accountJobsList (eq(jobs.status, "active")).
+ */
+export async function employerJobUpdate(
+  req: Request,
+  res: Response,
+  jobId: string,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const emp = await resolveEmployer(auth);
+  if (!emp) {
+    res.status(403).json({ error: "not an employer" });
+    return;
+  }
+  const [job] = await db()
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.id, jobId), eq(jobs.employerId, emp.id)))
+    .limit(1);
+  if (!job) {
+    res.status(404).json({ error: "not your job" });
+    return;
+  }
+
+  const body = req.body ?? {};
+  const updates: Record<string, unknown> = {};
+  if (typeof body.status === "string" && VALID_JOB_STATUSES.includes(body.status as JobStatus)) {
+    updates.status = body.status;
+  }
+  if (typeof body.title === "string" && body.title.trim()) {
+    updates.title = body.title.trim().slice(0, 240);
+  }
+  if (typeof body.location === "string" && body.location.trim()) {
+    updates.location = body.location.trim().slice(0, 240);
+  }
+  if (typeof body.pay === "string") {
+    updates.pay = body.pay.trim().slice(0, 120) || null;
+  }
+  if (typeof body.requiredCount === "number" && body.requiredCount >= 1) {
+    updates.requiredCount = Math.floor(body.requiredCount);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "nothing_to_update" });
+    return;
+  }
+  updates.updatedAt = new Date();
+
+  await db().update(jobs).set(updates).where(eq(jobs.id, jobId));
+  res.json({ ok: true, updated: Object.keys(updates) });
+}
+
+/**
+ * GET /api/account/employer/jobs/:id/applicants — real applicants for
+ * this job: rows where matches.status is one of {applied, screened,
+ * shortlisted, rejected}. Different from /matches which returns the
+ * top-K semantic-similarity candidate pool.
+ */
+export async function employerJobApplicants(
+  req: Request,
+  res: Response,
+  jobId: string,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const emp = await resolveEmployer(auth);
+  if (!emp) {
+    res.status(403).json({ error: "not an employer" });
+    return;
+  }
+  const [job] = await db()
+    .select({ id: jobs.id, title: jobs.title })
+    .from(jobs)
+    .where(and(eq(jobs.id, jobId), eq(jobs.employerId, emp.id)))
+    .limit(1);
+  if (!job) {
+    res.status(404).json({ error: "not your job" });
+    return;
+  }
+
+  const rows = await db()
+    .select({
+      candidateId: matches.candidateId,
+      status: matches.status,
+      whyRanked: matches.whyRanked,
+      updatedAt: matches.updatedAt,
+      score: matches.score,
+    })
+    .from(matches)
+    .where(
+      and(
+        eq(matches.jobId, job.id),
+        inArray(matches.status, APPLICANT_STATUSES),
+      ),
+    )
+    .orderBy(sql`${matches.updatedAt} desc`);
+
+  const candidateIds = rows.map((r) => r.candidateId);
+  const profiles = candidateIds.length
+    ? await db()
+        .select({
+          candidateId: profileCards.candidateId,
+          name: profileCards.name,
+          title: profileCards.title,
+          yearsExperience: profileCards.yearsExperience,
+          location: profileCards.location,
+          summary: profileCards.summary,
+          ticketsAndCards: profileCards.ticketsAndCards,
+        })
+        .from(profileCards)
+        .where(inArray(profileCards.candidateId, candidateIds))
+    : [];
+  const profileMap = new Map(profiles.map((p) => [p.candidateId, p]));
+
+  res.json({
+    job: { id: job.id, title: job.title },
+    applicants: rows.map((r) => {
+      const p = profileMap.get(r.candidateId);
+      return {
+        candidateId: r.candidateId,
+        status: r.status,
+        rationale: r.whyRanked,
+        appliedAt: r.updatedAt,
+        score: r.score ? Math.round(Number(r.score) * 100) : null,
+        name: p?.name ?? null,
+        title: p?.title ?? null,
+        yearsExperience: p?.yearsExperience ?? null,
+        location: p?.location ?? null,
+        summary: p?.summary ?? null,
+        ticketsAndCards: p?.ticketsAndCards ?? [],
+      };
+    }),
+  });
+}
+
+/**
+ * POST /api/account/employer/jobs/:jobId/candidates/:candidateId/action
+ * Body: { action: "shortlist" | "reject" | "request_interview" }
+ *
+ * Updates matches.status accordingly. Pilot: request_interview marks
+ * the match as 'screened' and logs; calendar wiring is post-pilot.
+ */
+export async function employerCandidateAction(
+  req: Request,
+  res: Response,
+  jobId: string,
+  candidateId: string,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const emp = await resolveEmployer(auth);
+  if (!emp) {
+    res.status(403).json({ error: "not an employer" });
+    return;
+  }
+  const [job] = await db()
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.id, jobId), eq(jobs.employerId, emp.id)))
+    .limit(1);
+  if (!job) {
+    res.status(404).json({ error: "not your job" });
+    return;
+  }
+
+  const action = String(req.body?.action ?? "");
+  const map: Record<string, "shortlisted" | "rejected" | "screened"> = {
+    shortlist: "shortlisted",
+    reject: "rejected",
+    request_interview: "screened",
+  };
+  const newStatus = map[action];
+  if (!newStatus) {
+    res.status(400).json({ error: "invalid_action" });
+    return;
+  }
+
+  await db()
+    .insert(matches)
+    .values({
+      candidateId,
+      jobId: job.id,
+      score: "0.500",
+      whyRanked: `Manual ${action} by employer`,
+      status: newStatus,
+    })
+    .onConflictDoUpdate({
+      target: [matches.candidateId, matches.jobId],
+      set: { status: newStatus, updatedAt: new Date() },
+    });
+
+  console.log(
+    `[employer/action] job=${job.id.slice(0, 8)} candidate=${candidateId.slice(0, 8)} ` +
+      `action=${action} → ${newStatus}`,
+  );
+  res.json({ ok: true, status: newStatus });
+}
+
+/**
+ * GET /api/jobs/:id — public read for a single active job. Candidates
+ * use this to view the full description before applying. Filled /
+ * paused jobs return 404 to mirror the public feed (accountJobsList)
+ * which also hides them.
+ */
+export async function publicJobGet(
+  req: Request,
+  res: Response,
+  jobId: string,
+): Promise<void> {
+  const [job] = await db()
+    .select({
+      id: jobs.id,
+      title: jobs.title,
+      location: jobs.location,
+      pay: jobs.pay,
+      shiftPattern: jobs.shiftPattern,
+      mustHaves: jobs.mustHaves,
+      dealBreakers: jobs.dealBreakers,
+      structuredBrief: jobs.structuredBrief,
+      source: jobs.source,
+      requiredCount: jobs.requiredCount,
+      createdAt: jobs.createdAt,
+      status: jobs.status,
+      employerId: jobs.employerId,
+    })
+    .from(jobs)
+    .where(eq(jobs.id, jobId))
+    .limit(1);
+  if (!job || job.status !== "active") {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
+  const [emp] = await db()
+    .select({ company: employers.company })
+    .from(employers)
+    .where(eq(employers.id, job.employerId))
+    .limit(1);
+
+  void req;
+  const brief = (job.structuredBrief as Record<string, unknown> | null) ?? {};
+  res.json({
+    id: job.id,
+    title: job.title,
+    company: emp?.company ?? (brief.company as string) ?? null,
+    location: job.location,
+    pay: job.pay,
+    shiftPattern: job.shiftPattern,
+    requiredCount: job.requiredCount,
+    mustHaves: job.mustHaves ?? [],
+    dealBreakers: job.dealBreakers ?? [],
+    description: (brief.description as string) ?? null,
+    projectScope: (brief.projectScope as string) ?? null,
+    whatYoullNeed: (brief.whatYoullNeed as string[]) ?? [],
+    source: job.source, // 'voice' = GigGrab-native; 'link' = Adzuna; etc.
+    createdAt: job.createdAt,
+  });
+}
+
 /** GET /api/account/employer/me — returns the signed-in employer + their jobs. */
 export async function employerMe(req: Request, res: Response): Promise<void> {
   const auth = await decodeBearer(req);

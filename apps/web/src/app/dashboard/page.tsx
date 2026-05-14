@@ -539,6 +539,23 @@ function CountryFilterPills({
   );
 }
 
+type PublicJob = {
+  id: string;
+  title: string;
+  company: string | null;
+  location: string;
+  pay: string | null;
+  shiftPattern: string | null;
+  requiredCount: number;
+  mustHaves: string[];
+  dealBreakers: string[];
+  description: string | null;
+  projectScope: string | null;
+  whatYoullNeed: string[];
+  source: string;
+  createdAt: string;
+};
+
 function JobCard({
   job,
   candidateEmail,
@@ -555,6 +572,34 @@ function JobCard({
   // Show the confirmation strip on a freshly-applied card only — when
   // the page reloads, the green Applied pill alone is enough.
   const [showJustApplied, setShowJustApplied] = useState(false);
+  const [details, setDetails] = useState<PublicJob | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // jobs.source === 'voice' means the brief was built on a GigGrab
+  // employer-intake call. 'link' / 'ats' / 'upload' come from external
+  // sources (Adzuna, ATS connectors). Badge the difference so candidates
+  // know which ones are first-party.
+  const isGigGrabNative = job.source === "voice" || job.source === "upload";
+
+  async function toggleDetails() {
+    if (detailsOpen) {
+      setDetailsOpen(false);
+      return;
+    }
+    setDetailsOpen(true);
+    if (details) return;
+    setLoadingDetails(true);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}`);
+      if (res.ok) {
+        const j = (await res.json()) as PublicJob;
+        setDetails(j);
+      }
+    } finally {
+      setLoadingDetails(false);
+    }
+  }
 
   async function apply() {
     if (job.applied || busy) return;
@@ -584,12 +629,26 @@ function JobCard({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h3
-            className="m-0 text-[17px] font-bold tracking-tight"
-            style={{ color: "var(--gg-ink)" }}
-          >
-            {job.title}
-          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3
+              className="m-0 text-[17px] font-bold tracking-tight"
+              style={{ color: "var(--gg-ink)" }}
+            >
+              {job.title}
+            </h3>
+            {isGigGrabNative && (
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                style={{
+                  background: "var(--gg-green-tint-2)",
+                  color: "var(--gg-green-deep)",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                GigGrab
+              </span>
+            )}
+          </div>
           <p
             className="mt-0.5 text-sm"
             style={{ color: "var(--gg-ink-2)" }}
@@ -640,6 +699,14 @@ function JobCard({
           >
             <IconPhone width={13} height={13} /> Call
           </a>
+          <button
+            type="button"
+            onClick={toggleDetails}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+            style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+          >
+            {detailsOpen ? "Hide details" : "View details"}
+          </button>
           {(() => {
             const safeUrl = safeHttpUrl(job.applyUrl);
             return safeUrl ? (
@@ -659,6 +726,86 @@ function JobCard({
           })()}
         </div>
       </div>
+      {detailsOpen && (
+        <div
+          className="mt-4 rounded-xl border bg-white p-4"
+          style={{ borderColor: "var(--gg-line-2)" }}
+        >
+          {loadingDetails || !details ? (
+            <p className="text-sm" style={{ color: "var(--gg-muted)" }}>
+              Loading details…
+            </p>
+          ) : (
+            <div className="space-y-3 text-sm">
+              {details.description && (
+                <p style={{ color: "var(--gg-ink-2)" }}>{details.description}</p>
+              )}
+              {details.projectScope && (
+                <div>
+                  <p
+                    className="mono text-[10px] font-semibold uppercase"
+                    style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
+                  >
+                    Scope
+                  </p>
+                  <p className="mt-1" style={{ color: "var(--gg-ink-2)" }}>
+                    {details.projectScope}
+                  </p>
+                </div>
+              )}
+              {details.mustHaves.length > 0 && (
+                <div>
+                  <p
+                    className="mono text-[10px] font-semibold uppercase"
+                    style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
+                  >
+                    Must-haves
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {details.mustHaves.map((m, i) => (
+                      <span
+                        key={i}
+                        className="rounded-full px-2 py-0.5 text-xs font-medium"
+                        style={{
+                          background: "var(--gg-green-tint-2)",
+                          color: "var(--gg-green-deep)",
+                        }}
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {details.dealBreakers.length > 0 && (
+                <div>
+                  <p
+                    className="mono text-[10px] font-semibold uppercase"
+                    style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
+                  >
+                    Deal-breakers
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {details.dealBreakers.map((m, i) => (
+                      <span
+                        key={i}
+                        className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700"
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {details.requiredCount > 1 && (
+                <p style={{ color: "var(--gg-muted)" }}>
+                  {details.requiredCount} workers needed
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {err && (
         <p
           className="mt-2 rounded-md px-3 py-1.5 text-xs"

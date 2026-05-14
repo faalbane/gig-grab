@@ -32,7 +32,14 @@ import {
   accountJobsApply,
 } from "./jobs-ingest-adzuna";
 import { adminRerunExtract, adminEmbedBackfill } from "./admin";
-import { employerMe, employerJobMatches } from "./employer";
+import {
+  employerMe,
+  employerJobMatches,
+  employerJobUpdate,
+  employerJobApplicants,
+  employerCandidateAction,
+  publicJobGet,
+} from "./employer";
 
 initializeApp();
 
@@ -239,6 +246,32 @@ export const api = onRequest(
       );
       if (empMatchMatch && method === "GET") {
         await employerJobMatches(req, res, empMatchMatch[1]);
+        return;
+      }
+      const empJobMatch = path.match(
+        /^\/account\/employer\/jobs\/([0-9a-f-]{36})$/,
+      );
+      if (empJobMatch && (method === "PATCH" || method === "PUT")) {
+        await employerJobUpdate(req, res, empJobMatch[1]);
+        return;
+      }
+      const empApplicantsMatch = path.match(
+        /^\/account\/employer\/jobs\/([0-9a-f-]{36})\/applicants$/,
+      );
+      if (empApplicantsMatch && method === "GET") {
+        await employerJobApplicants(req, res, empApplicantsMatch[1]);
+        return;
+      }
+      const empActionMatch = path.match(
+        /^\/account\/employer\/jobs\/([0-9a-f-]{36})\/candidates\/([0-9a-f-]{36})\/action$/,
+      );
+      if (empActionMatch && method === "POST") {
+        await employerCandidateAction(req, res, empActionMatch[1], empActionMatch[2]);
+        return;
+      }
+      const publicJobMatch = path.match(/^\/jobs\/([0-9a-f-]{36})$/);
+      if (publicJobMatch && method === "GET") {
+        await publicJobGet(req, res, publicJobMatch[1]);
         return;
       }
       const applyMatch = path.match(
