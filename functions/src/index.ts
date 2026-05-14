@@ -31,6 +31,7 @@ import {
   accountJobsApply,
 } from "./jobs-ingest-adzuna";
 import { adminRerunExtract } from "./admin";
+import { employerMe, employerJobMatches } from "./employer";
 
 initializeApp();
 
@@ -45,6 +46,10 @@ const SECRETS = [
   "ADZUNA_APP_ID",
   "ADZUNA_APP_KEY",
   "INGEST_SECRET",
+  // OPENAI_API_KEY drives candidate/job embedding generation. Optional:
+  // when absent, embedText warns + returns null and the employer
+  // match endpoint returns an empty list with `embedding: null`.
+  // Add the secret via Secret Manager then re-list it here to enable.
 ];
 
 /**
@@ -214,6 +219,17 @@ export const api = onRequest(
       }
       if (method === "GET" && path === "/account/jobs") {
         await accountJobsList(req, res);
+        return;
+      }
+      if (method === "GET" && path === "/account/employer/me") {
+        await employerMe(req, res);
+        return;
+      }
+      const empMatchMatch = path.match(
+        /^\/account\/employer\/jobs\/([0-9a-f-]{36})\/matches$/,
+      );
+      if (empMatchMatch && method === "GET") {
+        await employerJobMatches(req, res, empMatchMatch[1]);
         return;
       }
       const applyMatch = path.match(

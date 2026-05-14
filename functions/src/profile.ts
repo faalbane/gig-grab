@@ -431,6 +431,18 @@ export async function extractProfile(sessionId: string): Promise<void> {
       ` projects=${merged.recentProjects.length})`,
   );
 
+  // Re-embed the candidate so semantic match queries from the employer
+  // side pick up the latest profile state. Fire-and-forget: failure
+  // here doesn't break the extraction; the next edit will retry.
+  void (async () => {
+    try {
+      const { embedCandidate } = await import("./embeddings");
+      await embedCandidate(session.candidateId!);
+    } catch (err) {
+      console.error("[embed:candidate] failed", err);
+    }
+  })();
+
   // Process any apply-intents Claude detected in the transcript. For
   // each, fuzzy-match against the active jobs table by title (+company
   // if provided) and upsert a matches row with status='applied'. This

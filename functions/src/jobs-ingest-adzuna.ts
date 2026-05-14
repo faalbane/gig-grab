@@ -266,8 +266,22 @@ export async function jobsIngestAdzuna(
         status: "active",
         requiredCount: 1,
       };
-      await db().insert(jobs).values(row);
+      const [created] = await db()
+        .insert(jobs)
+        .values(row)
+        .returning({ id: jobs.id });
       inserted++;
+      // Fire-and-forget embed so the row is searchable to employers.
+      // Don't await — keep ingest fast; failure is logged and the
+      // refresh-all sweep will pick the row up next pass.
+      void (async () => {
+        try {
+          const { embedJob } = await import("./embeddings");
+          await embedJob(created.id);
+        } catch (err) {
+          console.error("[embed:job] adzuna failed", err);
+        }
+      })();
     } catch (err) {
       console.error("[adzuna] row insert failed", err);
       skipped++;
@@ -438,9 +452,20 @@ export async function jobsIngestAdzunaRefreshAll(
           requiredCount: 1,
         };
         try {
-          await db().insert(jobs).values(insertRow);
+          const [created] = await db()
+            .insert(jobs)
+            .values(insertRow)
+            .returning({ id: jobs.id });
           inserted++;
           totalInserted++;
+          void (async () => {
+            try {
+              const { embedJob } = await import("./embeddings");
+              await embedJob(created.id);
+            } catch (err) {
+              console.error("[embed:job] adzuna-refresh failed", err);
+            }
+          })();
         } catch (err) {
           console.error("[adzuna-refresh] row insert failed", err);
           skipped++;

@@ -343,6 +343,17 @@ export async function accountProfileUpdate(
       set: { ...merged, manualOverrides, updatedAt: new Date() },
     });
 
+  // Re-embed in the background so the next employer query reflects
+  // the manual edit. Don't block the response.
+  void (async () => {
+    try {
+      const { embedCandidate } = await import("./embeddings");
+      await embedCandidate(candidate.id);
+    } catch (err) {
+      console.error("[embed:candidate] manual-edit failed", err);
+    }
+  })();
+
   res.json({
     profile: {
       candidateId: candidate.id,

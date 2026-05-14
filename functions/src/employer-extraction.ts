@@ -229,6 +229,19 @@ export async function extractEmployerJob(sessionId: string): Promise<void> {
     requiredCount: input.requiredCount ?? 1,
   };
 
-  await db().insert(jobs).values(jobValues);
-  console.log(`[extract:job] saved job for employer ${employerId}`);
+  const [created] = await db().insert(jobs).values(jobValues).returning({
+    id: jobs.id,
+  });
+  console.log(
+    `[extract:job] saved job=${created.id} for employer ${employerId}`,
+  );
+
+  void (async () => {
+    try {
+      const { embedJob } = await import("./embeddings");
+      await embedJob(created.id);
+    } catch (err) {
+      console.error("[embed:job] failed", err);
+    }
+  })();
 }
