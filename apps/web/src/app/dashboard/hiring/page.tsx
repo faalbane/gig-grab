@@ -131,7 +131,7 @@ export default function EmployerDashboardPage() {
                 </h1>
               </div>
               <Link
-                href="/hiring"
+                href="/voice?audience=employer"
                 className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:border-emerald-300"
               >
                 + Post another role
@@ -323,16 +323,16 @@ function EmptyEmployerState() {
         Looks like you haven&apos;t posted a job yet.
       </h2>
       <p className="mx-auto mt-2 max-w-md text-sm text-gray-600">
-        Call our hotline and tell our AI recruiter who you need.
-        We&apos;ll build the brief from your conversation and start
-        matching candidates as they come in.
+        Describe the role in two minutes — by browser mic or phone — and
+        we&apos;ll build the posting as you talk. Matches start flowing
+        the moment it&apos;s live.
       </p>
-      <div className="mt-5 flex justify-center gap-3">
+      <div className="mt-5 flex flex-wrap justify-center gap-3">
         <Link
-          href="/hiring"
+          href="/voice?audience=employer"
           className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white"
         >
-          Start hiring →
+          Start hiring (use my mic) →
         </Link>
         <Link
           href={`tel:${(process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910").replace(/\s/g, "")}`}

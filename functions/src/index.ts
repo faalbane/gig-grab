@@ -23,6 +23,7 @@ import {
   accountEmailUpdate,
   accountDelete,
   sessionExtractSnapshot,
+  sessionExtractJobSnapshot,
 } from "./account";
 import {
   jobsIngestAdzuna,
@@ -181,6 +182,13 @@ export const api = onRequest(
       );
       if (snapshotMatch && method === "POST") {
         await sessionExtractSnapshot(req, res, snapshotMatch[1]);
+        return;
+      }
+      const jobSnapshotMatch = path.match(
+        /^\/sessions\/([0-9a-f-]{36})\/extract-job-snapshot$/,
+      );
+      if (jobSnapshotMatch && method === "POST") {
+        await sessionExtractJobSnapshot(req, res, jobSnapshotMatch[1]);
         return;
       }
       if (method === "POST" && path === "/auth/link") {

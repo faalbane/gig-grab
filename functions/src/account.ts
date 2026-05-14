@@ -188,6 +188,72 @@ export async function sessionExtractSnapshot(
 }
 
 /**
+ * POST /api/sessions/:id/extract-job-snapshot — employer-side analogue
+ * of sessionExtractSnapshot. Returns a transient JobDraft so the live
+ * /voice?audience=employer right pane can render the job posting as
+ * the employer speaks. No DB writes — final commit happens post-call
+ * via extractEmployerJob.
+ *
+ * Same rate-limit pattern: 5s min gap, 30 per session lifetime, refuses
+ * terminal sessions.
+ */
+const jobSnapshotBuckets = new Map<string, SnapshotBucket>();
+
+export async function sessionExtractJobSnapshot(
+  req: Request,
+  res: Response,
+  sessionId: string,
+): Promise<void> {
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const candidate = await ensureCandidateForUid(auth);
+  const [s] = await db()
+    .select({
+      candidateId: sessions.candidateId,
+      status: sessions.status,
+      kind: sessions.kind,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  if (!s || s.candidateId !== candidate.id) {
+    res.status(403).json({ error: "not your session" });
+    return;
+  }
+  if (s.kind !== "employer_intake") {
+    res.status(409).json({ error: "not an employer session" });
+    return;
+  }
+  if (s.status === "completed" || s.status === "abandoned" || s.status === "failed") {
+    res.status(409).json({ error: "session not live" });
+    return;
+  }
+  const now = Date.now();
+  const bucket = jobSnapshotBuckets.get(sessionId) ?? { last: 0, count: 0 };
+  if (now - bucket.last < SNAPSHOT_MIN_GAP_MS) {
+    res.status(429).json({ error: "snapshot_rate_limited" });
+    return;
+  }
+  if (bucket.count >= SNAPSHOT_MAX_PER_SESSION) {
+    res.status(429).json({ error: "snapshot_quota_exceeded" });
+    return;
+  }
+  jobSnapshotBuckets.set(sessionId, { last: now, count: bucket.count + 1 });
+
+  try {
+    const { extractJobDraft } = await import("./employer-extraction");
+    const draft = await extractJobDraft(sessionId);
+    res.json({ ok: true, draft });
+  } catch (err) {
+    console.error("[snapshot-extract:job] failed", err);
+    res.status(500).json({ error: "extract failed" });
+  }
+}
+
+/**
  * POST /api/account/email — set or update the signed-in candidate's
  * email. Used after the apply flow to collect an email for application
  * status updates without forcing email at sign-in. Idempotent.

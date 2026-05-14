@@ -104,6 +104,60 @@ function formatPay(input: SaveJobInput): string | null {
 }
 
 /**
+ * Mid-call: run Claude over the partial transcript and return the
+ * structured JobExtraction WITHOUT touching the DB. Powers the live
+ * job-posting preview on the right pane of /voice?audience=employer.
+ * Final commit (employer + jobs rows) still happens once at call end
+ * via extractEmployerJob.
+ */
+export async function extractJobDraft(
+  sessionId: string,
+): Promise<(SaveJobInput & { payDisplay: string | null }) | null> {
+  const [session] = await db()
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  if (!session || session.kind !== "employer_intake") return null;
+
+  const turns = await db()
+    .select()
+    .from(transcriptTurns)
+    .where(eq(transcriptTurns.sessionId, sessionId))
+    .orderBy(asc(transcriptTurns.ord));
+  if (turns.length < 2) return null;
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+  const client = new Anthropic({ apiKey });
+
+  const transcriptText = turns
+    .map((t) => `${t.speaker === "ai" ? "AI" : "Employer"}: ${t.text}`)
+    .join("\n");
+
+  const message = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1500,
+    system: SYSTEM,
+    tools: [SAVE_JOB_TOOL],
+    tool_choice: { type: "tool", name: "save_job" },
+    messages: [
+      {
+        role: "user",
+        content: `<transcript>\n${transcriptText}\n</transcript>\n\nExtract the job posting so far. Leave fields null when the employer hasn't said them yet — this is a live snapshot of an in-progress call.`,
+      },
+    ],
+  });
+
+  const toolUse = message.content.find(
+    (b) => b.type === "tool_use" && b.name === "save_job",
+  );
+  if (!toolUse || toolUse.type !== "tool_use") return null;
+  const input = toolUse.input as SaveJobInput;
+  return { ...input, payDisplay: formatPay(input) };
+}
+
+/**
  * Run Claude over the employer intake transcript, then write employer + job
  * rows. Idempotent — re-runs update the existing job row by session linkage.
  */

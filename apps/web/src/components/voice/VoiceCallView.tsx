@@ -11,12 +11,15 @@ import {
   type VoiceCallController,
 } from "@/lib/web-voice";
 import { CvPreview } from "@/components/profile/CvPreview";
+import { JobPreview, type JobDraft } from "@/components/voice/JobPreview";
 import {
   IconPhone,
   IconMic,
   IconClose,
 } from "@/components/marketing/hotline/icons";
 import type { ProfileCard } from "@/lib/types";
+
+type Audience = "worker" | "employer";
 
 type StartResponse = {
   sessionId: string;
@@ -44,7 +47,11 @@ type AccountMe = {
   profile: ProfileCard | null;
 };
 
-export function VoiceCallView() {
+export function VoiceCallView({
+  audience = "worker",
+}: {
+  audience?: Audience;
+} = {}) {
   const user = useAuthUser();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +71,8 @@ export function VoiceCallView() {
   const SNAPSHOT_TURN_DELTA = 6;
   const SNAPSHOT_COOLDOWN_MS = 8000;
   const [snapshotting, setSnapshotting] = useState(false);
+  const [jobDraft, setJobDraft] = useState<JobDraft | null>(null);
+  const isEmployer = audience === "employer";
 
   // Initial /account/me fetch so the CV pane has something to show.
   useEffect(() => {
@@ -111,11 +120,11 @@ export function VoiceCallView() {
     };
   }, [session, phase]);
 
-  // In-call snapshot loop. When the live transcript grows past the
-  // configured delta and the cooldown has elapsed, ask the server to
-  // re-run extractProfile on the current turns and then re-pull
-  // /account/me so the CV pane updates. This is what makes the CV
-  // appear to update in real time as the candidate talks.
+  // In-call snapshot loop. Mid-call we re-run Claude on the partial
+  // transcript and refresh the right pane: CV for workers, JobDraft
+  // for employers. Cost is one Anthropic call per snapshot, gated by
+  // SNAPSHOT_TURN_DELTA + cooldown so a chatty caller doesn't fan out
+  // requests.
   useEffect(() => {
     if (phase !== "live" || !session) return;
     const grew = turns.length - lastSnapshotTurnCountRef.current;
@@ -127,13 +136,21 @@ export function VoiceCallView() {
     setSnapshotting(true);
     (async () => {
       try {
-        await fetchWithAuth(
-          `/api/sessions/${session.sessionId}/extract-snapshot`,
-          { method: "POST" },
-        );
-        if (cancelled) return;
-        const data = await fetchWithAuth<AccountMe>("/api/account/me");
-        if (!cancelled) setMe(data);
+        if (isEmployer) {
+          const resp = await fetchWithAuth<{ draft: JobDraft | null }>(
+            `/api/sessions/${session.sessionId}/extract-job-snapshot`,
+            { method: "POST" },
+          );
+          if (!cancelled && resp.draft) setJobDraft(resp.draft);
+        } else {
+          await fetchWithAuth(
+            `/api/sessions/${session.sessionId}/extract-snapshot`,
+            { method: "POST" },
+          );
+          if (cancelled) return;
+          const data = await fetchWithAuth<AccountMe>("/api/account/me");
+          if (!cancelled) setMe(data);
+        }
       } catch {
         // benign — next snapshot tick will retry
       } finally {
@@ -143,7 +160,7 @@ export function VoiceCallView() {
     return () => {
       cancelled = true;
     };
-  }, [turns.length, phase, session]);
+  }, [turns.length, phase, session, isEmployer]);
 
   // Hard cleanup hooks. Without these, a tab close mid-call leaves the
   // mic LED on + the WS open until the browser eventually GCs the page
@@ -208,7 +225,10 @@ export function VoiceCallView() {
     try {
       const j = await fetchWithAuth<StartResponse>(
         "/api/account/web-call/start",
-        { method: "POST", body: JSON.stringify({ language: "en" }) },
+        {
+          method: "POST",
+          body: JSON.stringify({ language: "en", audience }),
+        },
       );
       setSession(j);
       startedAtRef.current = Date.now();
@@ -326,19 +346,25 @@ export function VoiceCallView() {
           )}
         </div>
 
-        {/* RIGHT — CV preview */}
+        {/* RIGHT — live preview pane. Worker = CV being built. Employer = job posting being built. */}
         <div>
-          <CvPreview
-            card={me?.profile ?? null}
-            email={me?.candidate.email ?? undefined}
-            updating={snapshotting}
-          />
+          {isEmployer ? (
+            <JobPreview draft={jobDraft} updating={snapshotting} />
+          ) : (
+            <CvPreview
+              card={me?.profile ?? null}
+              email={me?.candidate.email ?? undefined}
+              updating={snapshotting}
+            />
+          )}
           {phase === "live" && (
             <p
               className="mt-3 text-center text-[11.5px]"
               style={{ color: "var(--gg-muted)" }}
             >
-              CV refreshes as you talk.
+              {isEmployer
+                ? "Job posting refreshes as you talk."
+                : "CV refreshes as you talk."}
             </p>
           )}
           {phase === "ended" && (
@@ -346,7 +372,9 @@ export function VoiceCallView() {
               className="mt-3 text-center text-xs"
               style={{ color: "var(--gg-muted)" }}
             >
-              Refreshing your CV from the call…
+              {isEmployer
+                ? "Finalising your job posting…"
+                : "Refreshing your CV from the call…"}
             </p>
           )}
         </div>
