@@ -42,14 +42,11 @@ const SECRETS = [
   "TWILIO_PHONE_NUMBER",
   "TWILIO_VERIFY_SERVICE_SID",
   "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
   "SESSION_SECRET",
   "ADZUNA_APP_ID",
   "ADZUNA_APP_KEY",
   "INGEST_SECRET",
-  // OPENAI_API_KEY drives candidate/job embedding generation. Optional:
-  // when absent, embedText warns + returns null and the employer
-  // match endpoint returns an empty list with `embedding: null`.
-  // Add the secret via Secret Manager then re-list it here to enable.
 ];
 
 /**
