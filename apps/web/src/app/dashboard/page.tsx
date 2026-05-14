@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Header } from "@/components/marketing/Header";
 import { EditableCvCard } from "@/components/profile/EditableCvCard";
+import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
 import { IconPhone, IconBolt } from "@/components/marketing/hotline/icons";
 import type { ProfileCard } from "@/lib/types";
@@ -61,24 +62,6 @@ function DashboardPageInner() {
     }
     let cancelled = false;
     (async () => {
-      // Audience auto-route: if the signed-in user resolves to an
-      // employer row (claimed firebase_uid OR claimable via verified
-      // email OR linked via a prior employer_intake hotline session),
-      // bounce to the hiring dashboard. Honour ?force=worker to
-      // override when the user has both rows.
-      if (params.get("force") !== "worker") {
-        try {
-          const emp = await fetchWithAuth<{ employer: { id: string } | null }>(
-            "/api/account/employer/me",
-          );
-          if (!cancelled && emp.employer) {
-            window.location.replace("/dashboard/hiring");
-            return;
-          }
-        } catch {
-          // Non-fatal — fall through to candidate dashboard.
-        }
-      }
       try {
         const data = await fetchWithAuth<AccountMe>("/api/account/me");
         if (!cancelled) setMe(data);
@@ -91,7 +74,7 @@ function DashboardPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [user, params]);
+  }, [user]);
 
   if (user === null) {
     return <FullPageLoading />;
@@ -113,6 +96,7 @@ function DashboardPageInner() {
         }}
       >
         <div className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
+          <ModeToggle active="worker" />
           <div className="mb-6">
             <p
               className="mono text-xs font-semibold uppercase"

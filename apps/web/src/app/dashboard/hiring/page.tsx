@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
+import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
 
 type EmployerJob = {
@@ -107,6 +108,7 @@ export default function EmployerDashboardPage() {
     <>
       <Header />
       <main className="mx-auto max-w-7xl px-6 py-10">
+        <ModeToggle active="hiring" />
         {err && (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
             {err}
@@ -128,20 +130,12 @@ export default function EmployerDashboardPage() {
                   Your jobs
                 </h1>
               </div>
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/dashboard?force=worker"
-                  className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 hover:border-gray-300"
-                >
-                  Switch to worker view
-                </Link>
-                <Link
-                  href="/hiring"
-                  className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:border-emerald-300"
-                >
-                  + Post another role
-                </Link>
-              </div>
+              <Link
+                href="/hiring"
+                className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:border-emerald-300"
+              >
+                + Post another role
+              </Link>
             </div>
 
             <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
