@@ -1,7 +1,7 @@
 import { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
-import { db, candidates, sessions } from "@gig-grab/db";
-import { eq } from "drizzle-orm";
+import { db, candidates, sessions, jobs, profileCards } from "@gig-grab/db";
+import { eq, isNull } from "drizzle-orm";
 import { extractProfile } from "./profile";
 import { extractEmployerJob } from "./employer-extraction";
 import {
@@ -9,6 +9,7 @@ import {
   persistAudience,
   maybeFlipSessionKind,
 } from "./intent";
+import { embedCandidate, embedJob } from "./embeddings";
 
 // Per-session in-memory cooldown for /admin/rerun-extract. Cloud Run
 // horizontal scale means this isn't bulletproof — but limits a leaked
@@ -106,4 +107,75 @@ export async function adminRerunExtract(
     console.error("[admin/rerun-extract] failed", err);
     res.status(500).json({ error: "extraction failed" });
   }
+}
+
+/**
+ * POST /api/admin/embed-backfill?kind=candidates|jobs|all&limit=200
+ *
+ * Backfills embeddings for rows where the vector column is NULL.
+ * Needed once after OPENAI_API_KEY is provisioned, since the auto-embed
+ * hooks only fire on NEW writes (extract / manual edit / ingest).
+ *
+ * Auth: same INGEST_SECRET header as the other admin endpoints. NOT for
+ * end-user traffic.
+ */
+export async function adminEmbedBackfill(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    res.status(500).json({ error: "OPENAI_API_KEY not configured" });
+    return;
+  }
+
+  const kind = (req.query.kind as string | undefined) ?? "all";
+  const limit = Math.min(
+    1000,
+    Math.max(1, Number(req.query.limit ?? 200) || 200),
+  );
+
+  let candidatesDone = 0;
+  let jobsDone = 0;
+
+  if (kind === "candidates" || kind === "all") {
+    // Embed every profile_card whose candidate's profile_embedding is null.
+    const rows = await db()
+      .select({ candidateId: profileCards.candidateId })
+      .from(profileCards)
+      .innerJoin(candidates, eq(candidates.id, profileCards.candidateId))
+      .where(isNull(candidates.profileEmbedding))
+      .limit(limit);
+    for (const r of rows) {
+      try {
+        await embedCandidate(r.candidateId);
+        candidatesDone++;
+      } catch (err) {
+        console.error(`[backfill:candidate] ${r.candidateId} failed`, err);
+      }
+    }
+  }
+
+  if (kind === "jobs" || kind === "all") {
+    const rows = await db()
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(isNull(jobs.embedding))
+      .limit(limit);
+    for (const r of rows) {
+      try {
+        await embedJob(r.id);
+        jobsDone++;
+      } catch (err) {
+        console.error(`[backfill:job] ${r.id} failed`, err);
+      }
+    }
+  }
+
+  res.json({ ok: true, candidatesEmbedded: candidatesDone, jobsEmbedded: jobsDone });
 }

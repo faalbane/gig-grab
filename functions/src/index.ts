@@ -30,7 +30,7 @@ import {
   accountJobsList,
   accountJobsApply,
 } from "./jobs-ingest-adzuna";
-import { adminRerunExtract } from "./admin";
+import { adminRerunExtract, adminEmbedBackfill } from "./admin";
 import { employerMe, employerJobMatches } from "./employer";
 
 initializeApp();
@@ -142,6 +142,10 @@ export const api = onRequest(
       );
       if (rerunMatch && method === "POST") {
         await adminRerunExtract(req, res, rerunMatch[1]);
+        return;
+      }
+      if (method === "POST" && path === "/admin/embed-backfill") {
+        await adminEmbedBackfill(req, res);
         return;
       }
       const profileMatch = path.match(
