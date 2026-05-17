@@ -666,10 +666,46 @@ function TranscriptCard({
             The conversation appears here as you and Sarah speak.
           </p>
         ) : (
-          rows.map((t, i) => <Bubble key={i} turn={t} />)
+          <>
+            {rows.map((t, i) => <Bubble key={i} turn={t} />)}
+            {phase === "live" &&
+              rows.length > 0 &&
+              rows[rows.length - 1]?.speaker === "candidate" && (
+                <ThinkingDots />
+              )}
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+function ThinkingDots() {
+  return (
+    <div className="flex justify-start" aria-live="polite" aria-label="Sarah is thinking">
+      <div
+        className="inline-flex items-center gap-1 rounded-2xl px-3 py-2"
+        style={{ background: "var(--gg-bg)", color: "var(--gg-muted)" }}
+      >
+        <Dot delay="0ms" />
+        <Dot delay="150ms" />
+        <Dot delay="300ms" />
+        <span className="ml-1 text-[11px]">Sarah is thinking…</span>
+      </div>
+    </div>
+  );
+}
+
+function Dot({ delay }: { delay: string }) {
+  return (
+    <span
+      className="inline-block h-1.5 w-1.5 rounded-full"
+      style={{
+        background: "var(--gg-green-dark)",
+        animation: "ggThink 1s ease-in-out infinite",
+        animationDelay: delay,
+      }}
+    />
   );
 }
 

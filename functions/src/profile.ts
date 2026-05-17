@@ -21,6 +21,10 @@ import { eq, asc, and, ilike, sql } from "drizzle-orm";
 // canonical form so the recruiter-facing CV is consistent. If the
 // transcript phrase doesn't clearly match anything here, Claude keeps
 // the candidate's verbatim words rather than guessing.
+// Per-session lock to avoid concurrent extracts when the /profile poll
+// hits faster than the previous Anthropic call completes.
+const snapshotInflight = new Set<string>();
+
 const CANONICAL_CREDENTIALS = [
   // UK construction / trades
   "CSCS Gold Card",
@@ -210,11 +214,48 @@ export async function sessionProfileGet(
     .where(eq(transcriptTurns.sessionId, sessionId))
     .orderBy(asc(transcriptTurns.ord));
 
-  const [card] = await db()
+  let [card] = await db()
     .select()
     .from(profileCards)
     .where(eq(profileCards.candidateId, session.candidateId))
     .limit(1);
+
+  // Live-snapshot trigger: when /profile is polled mid-call and the
+  // profile card is either missing or stale (>10s old), opportunistically
+  // re-extract from the partial transcript. This is the equivalent of
+  // VoiceCallView's snapshot loop but for the token-gated /profile page,
+  // so a candidate who hits /profile during the call sees the CV fill in
+  // every ~5s instead of waiting until the post-call extractor runs.
+  // Guarded: only when session is live AND ≥4 turns exist AND a
+  // background extract isn't already in flight for this session.
+  const cardAge = card ? Date.now() - new Date(card.updatedAt).getTime() : Infinity;
+  const SNAPSHOT_STALE_MS = 10_000;
+  if (
+    session.status === "in_progress" &&
+    turns.length >= 4 &&
+    cardAge > SNAPSHOT_STALE_MS &&
+    !snapshotInflight.has(sessionId)
+  ) {
+    snapshotInflight.add(sessionId);
+    void (async () => {
+      try {
+        await extractProfile(sessionId);
+      } catch (err) {
+        console.error("[profile/get] background snapshot failed", err);
+      } finally {
+        snapshotInflight.delete(sessionId);
+      }
+    })();
+    // Re-read so this response can include the freshly-extracted card if
+    // the extractor was very fast. Usually still returns the prior card
+    // and the next 5s poll picks up the new one.
+    const [refreshed] = await db()
+      .select()
+      .from(profileCards)
+      .where(eq(profileCards.candidateId, session.candidateId))
+      .limit(1);
+    if (refreshed) card = refreshed;
+  }
 
   res.json({
     candidate: {

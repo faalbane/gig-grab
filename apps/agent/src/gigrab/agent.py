@@ -500,7 +500,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
                     confidence=0.55,
-                    stop_secs=0.5,
+                    stop_secs=0.4,
                     min_volume=0.5,
                 ),
             ),
