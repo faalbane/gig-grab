@@ -14,6 +14,7 @@ export const COUNTRY_CODES = [
   { code: "+39", flag: "🇮🇹", country: "Italy" },
   { code: "+351", flag: "🇵🇹", country: "Portugal" },
   { code: "+91", flag: "🇮🇳", country: "India" },
+  { code: "+92", flag: "🇵🇰", country: "Pakistan" },
   { code: "+63", flag: "🇵🇭", country: "Philippines" },
   { code: "+52", flag: "🇲🇽", country: "Mexico" },
   { code: "+48", flag: "🇵🇱", country: "Poland" },

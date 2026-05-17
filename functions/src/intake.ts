@@ -40,7 +40,7 @@ function parse(body: IntakeBody) {
   // drive expensive calls to attacker-controlled numbers.
   if (!isDialableE164(phone)) {
     throw new BadInput(
-      "We can only call UK, Ireland, US and Canadian numbers right now.",
+      "We can only call UK, Ireland, US, Canada, India and Pakistan numbers right now.",
     );
   }
 

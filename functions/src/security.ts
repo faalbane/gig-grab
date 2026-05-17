@@ -31,8 +31,11 @@ export function isAllowedLanguage(code: string): boolean {
 // ---------------------------------------------------------------------------
 
 // Country calling codes we will actively dial. Pilot scope: UK + Ireland +
-// North America (US/CA share +1).
-const ALLOWED_CALLING_CODES = new Set(["44", "353", "1"]);
+// North America (US/CA share +1) + India + Pakistan.
+// NOTE: India / Pakistan also need to be enabled under Twilio Console →
+// Voice → Settings → Geographic Permissions before outbound calls go
+// through, otherwise client.calls.create throws 21215.
+const ALLOWED_CALLING_CODES = new Set(["44", "353", "1", "91", "92"]);
 
 // Hard-block prefixes that are billable but never legitimate for hiring
 // outreach: satellite, premium-rate, personal/forwarding ranges, audio-text.
