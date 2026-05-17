@@ -422,7 +422,7 @@ function JobsTab({
 
       <SearchInput value={qInput} onChange={setQInput} />
 
-      <div className="mb-4 mt-3 flex flex-wrap items-center gap-2">
+      <div className="mb-4 mt-3 -mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1">
         <CountryFilterPills value={country} onChange={setCountry} />
         <ViewFilterPills value={view} onChange={setView} />
         <SourceFilterPills value={sourceFilter} onChange={setSourceFilter} />
@@ -745,7 +745,7 @@ function PillRow<T extends string>({
 }) {
   return (
     <div
-      className="inline-flex rounded-xl border p-1"
+      className="inline-flex flex-shrink-0 whitespace-nowrap rounded-xl border p-0.5"
       style={{ background: "var(--gg-bg)", borderColor: "var(--gg-line)" }}
     >
       {options.map((o) => (
@@ -753,7 +753,7 @@ function PillRow<T extends string>({
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className="rounded-lg px-3 py-1 text-xs font-semibold transition-all"
+          className="whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all"
           style={{
             background: o.value === value ? "white" : "transparent",
             color: o.value === value ? "var(--gg-ink)" : "var(--gg-muted)",
@@ -778,34 +778,7 @@ function ViewFilterPills({
     { value: "all", label: "All" },
     { value: "applied", label: "✓ Applied" },
   ];
-  return (
-    <div
-      className="inline-flex rounded-xl border p-1"
-      style={{
-        background: "var(--gg-bg)",
-        borderColor: "var(--gg-line)",
-      }}
-    >
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            className="rounded-lg px-4 py-1.5 text-xs font-semibold transition-all"
-            style={{
-              background: active ? "white" : "transparent",
-              color: active ? "var(--gg-ink)" : "var(--gg-muted)",
-              boxShadow: active ? "0 1px 3px rgba(0,0,0,0.06)" : undefined,
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  return <PillRow value={value} onChange={onChange} options={options} />;
 }
 
 function CountryFilterPills({
@@ -816,38 +789,11 @@ function CountryFilterPills({
   onChange: (next: CountryFilter) => void;
 }) {
   const options: { value: CountryFilter; label: string }[] = [
-    { value: "all", label: "All countries" },
-    { value: "gb", label: "🇬🇧 United Kingdom" },
-    { value: "us", label: "🇺🇸 United States" },
+    { value: "all", label: "All" },
+    { value: "gb", label: "🇬🇧 UK" },
+    { value: "us", label: "🇺🇸 US" },
   ];
-  return (
-    <div
-      className="mb-4 inline-flex flex-wrap rounded-xl border p-1"
-      style={{
-        background: "var(--gg-bg)",
-        borderColor: "var(--gg-line)",
-      }}
-    >
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            className="rounded-lg px-4 py-1.5 text-xs font-semibold transition-all"
-            style={{
-              background: active ? "white" : "transparent",
-              color: active ? "var(--gg-ink)" : "var(--gg-muted)",
-              boxShadow: active ? "0 1px 3px rgba(0,0,0,0.06)" : undefined,
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  return <PillRow value={value} onChange={onChange} options={options} />;
 }
 
 type PublicJob = {
