@@ -525,25 +525,54 @@ export async function accountJobsList(
     50,
     Math.max(1, Number(req.query.limit ?? 20) || 20),
   );
+  const offset = Math.max(0, Number(req.query.offset ?? 0) || 0);
   const country = String(req.query.country ?? "").slice(0, 2).toLowerCase();
   const appliedOnly = String(req.query.applied ?? "") === "1";
+  const q = String(req.query.q ?? "").trim().slice(0, 120);
+  const gigOnly = String(req.query.gigOnly ?? "") === "1";
+  // Recency filter in days. Empty / non-numeric = no filter.
+  const recencyDays = Number(req.query.recency ?? 0);
 
-  // Resolve the signed-in candidate once so we can both (a) restrict to
-  // their applied set when appliedOnly is set, and (b) stitch the
-  // applied flag onto every returned row.
   const [me] = await db()
-    .select({ id: candidates.id })
+    .select({
+      id: candidates.id,
+      profileEmbedding: candidates.profileEmbedding,
+    })
     .from(candidates)
     .where(eq(candidates.firebaseUid, uid))
     .limit(1);
 
-  const conditions = [eq(jobs.status, "active")];
+  // Shared WHERE conditions used by both the primary query and the
+  // similar-jobs fallback.
+  const baseConds = [eq(jobs.status, "active")];
   if (country === "gb" || country === "us") {
-    conditions.push(sql`structured_brief->>'country' = ${country}`);
+    baseConds.push(sql`structured_brief->>'country' = ${country}`);
   }
+  if (gigOnly) {
+    // 'voice' = GigGrab employer voice-intake; 'upload' = first-party uploads.
+    baseConds.push(sql`${jobs.source} IN ('voice','upload')`);
+  }
+  if (
+    Number.isFinite(recencyDays) &&
+    recencyDays > 0 &&
+    recencyDays <= 365
+  ) {
+    baseConds.push(
+      sql`${jobs.createdAt} > now() - (${recencyDays} || ' days')::interval`,
+    );
+  }
+
+  const conditions = [...baseConds];
   if (appliedOnly) {
     if (!me) {
-      res.json({ jobs: [], country: country || "all" });
+      res.json({
+        jobs: [],
+        country: country || "all",
+        mode: "applied",
+        q,
+        hasMore: false,
+        totalCount: 0,
+      });
       return;
     }
     conditions.push(sql`${jobs.id} IN (
@@ -551,8 +580,46 @@ export async function accountJobsList(
       WHERE candidate_id = ${me.id} AND status = 'applied'
     )`);
   }
+  if (q.length > 0) {
+    const like = `%${q}%`;
+    conditions.push(
+      sql`(${jobs.title} ILIKE ${like}
+        OR structured_brief->>'company' ILIKE ${like}
+        OR structured_brief->>'description' ILIKE ${like}
+        OR ${jobs.location} ILIKE ${like})`,
+    );
+  }
 
-  const rows = await db()
+  // Mode label tells the UI how to header the list:
+  //   'exact'       — text search hits
+  //   'similar'     — text search empty → embedding fallback
+  //   'personalized'— no q, candidate has embedding → cosine to profile
+  //   'recent'      — no q, no embedding → createdAt desc
+  //   'applied'     — appliedOnly filter
+  let mode: "exact" | "similar" | "personalized" | "recent" | "applied" =
+    appliedOnly ? "applied" : q.length > 0 ? "exact" : "recent";
+
+  // Hybrid ranking. When the candidate has a profile embedding we
+  // ALWAYS personalize the order (even on exact text matches) so a
+  // carpenter searching 'manchester' sees carpenter-in-manchester first.
+  // When they don't have an embedding, fall back to createdAt desc for
+  // exact + recent, and to the query embedding for the similar fallback.
+  let orderClause = sql`${jobs.createdAt} desc`;
+  let usedCandidateEmbedding = false;
+  if (me?.profileEmbedding) {
+    const vec = sql`'[${sql.raw(me.profileEmbedding.join(","))}]'::vector`;
+    orderClause = sql`(jobs.embedding <=> ${vec})`;
+    usedCandidateEmbedding = true;
+    if (!q && !appliedOnly) mode = "personalized";
+  }
+
+  // Total count for "showing 1–20 of N". Cheap COUNT(*) on the same WHERE.
+  const [{ n: totalCount }] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(jobs)
+    .where(sql.join(conditions, sql` AND `));
+
+  let rows = await db()
     .select({
       id: jobs.id,
       title: jobs.title,
@@ -560,12 +627,54 @@ export async function accountJobsList(
       pay: jobs.pay,
       shiftPattern: jobs.shiftPattern,
       structuredBrief: jobs.structuredBrief,
+      source: jobs.source,
       createdAt: jobs.createdAt,
     })
     .from(jobs)
     .where(sql.join(conditions, sql` AND `))
-    .orderBy(sql`${jobs.createdAt} desc`)
-    .limit(limit);
+    .orderBy(orderClause)
+    .limit(limit)
+    .offset(offset);
+
+  // Similar-jobs fallback. Only when explicit text search returned
+  // nothing — never on an empty personalized feed. We embed the query
+  // (lighter signal than a full profile) and pull the K nearest active
+  // jobs honouring the same country / gigOnly / recency filters.
+  if (rows.length === 0 && q && !appliedOnly) {
+    try {
+      const { embedText } = await import("./embeddings");
+      const qvec = await embedText(q);
+      if (qvec) {
+        const vec = sql`'[${sql.raw(qvec.join(","))}]'::vector`;
+        const fbConds = [...baseConds, sql`embedding IS NOT NULL`];
+        // Re-blend: order by AVG(query distance, candidate-profile
+        // distance) when we have both. Otherwise just query distance.
+        let fbOrder = sql`embedding <=> ${vec}`;
+        if (usedCandidateEmbedding && me?.profileEmbedding) {
+          const pvec = sql`'[${sql.raw(me.profileEmbedding.join(","))}]'::vector`;
+          fbOrder = sql`((embedding <=> ${vec}) + (embedding <=> ${pvec})) / 2`;
+        }
+        rows = await db()
+          .select({
+            id: jobs.id,
+            title: jobs.title,
+            location: jobs.location,
+            pay: jobs.pay,
+            shiftPattern: jobs.shiftPattern,
+            structuredBrief: jobs.structuredBrief,
+            source: jobs.source,
+            createdAt: jobs.createdAt,
+          })
+          .from(jobs)
+          .where(sql.join(fbConds, sql` AND `))
+          .orderBy(fbOrder)
+          .limit(limit);
+        if (rows.length > 0) mode = "similar";
+      }
+    } catch (err) {
+      console.error("[jobs/list] similar-jobs fallback failed", err);
+    }
+  }
 
   // Stitch the signed-in user's apply state onto each row. Cheap single
   // JOIN-equivalent: one extra query that filters matches to the rows
@@ -596,7 +705,9 @@ export async function accountJobsList(
       location: r.location,
       pay: r.pay,
       shiftPattern: r.shiftPattern,
-      source: (brief.source as string) ?? null,
+      // `source` on the row is the canonical enum (voice|upload|link|ats).
+      // brief.source is legacy free-text — prefer the enum.
+      source: r.source ?? (brief.source as string) ?? null,
       country: (brief.country as string) ?? null,
       applyUrl: safeHttpUrl(brief.applyUrl),
       createdAt: r.createdAt,
@@ -604,7 +715,14 @@ export async function accountJobsList(
     };
   });
 
-  res.json({ jobs: out, country: country || "all" });
+  res.json({
+    jobs: out,
+    country: country || "all",
+    mode,
+    q,
+    totalCount,
+    hasMore: offset + rows.length < totalCount && mode !== "similar",
+  });
 }
 
 /**

@@ -270,6 +270,17 @@ type JobRow = {
 
 type CountryFilter = "all" | "gb" | "us";
 type ApplyView = "all" | "applied";
+type SourceFilter = "all" | "giggrab";
+type RecencyFilter = "any" | "7" | "30";
+
+type JobsResponse = {
+  jobs: JobRow[];
+  country: string;
+  mode: "exact" | "similar" | "personalized" | "recent" | "applied";
+  q: string;
+  totalCount: number;
+  hasMore: boolean;
+};
 
 function JobsTab({
   candidateEmail,
@@ -283,16 +294,13 @@ function JobsTab({
   const [jobs, setJobs] = useState<JobRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<ApplyView>("all");
-  // Default the country filter to the visitor's detected region (set by
-  // <LocaleBadge /> at most 24h ago in localStorage). Saves users from
-  // a sea of irrelevant out-of-region listings on first visit.
   const [country, setCountry] = useState<CountryFilter>(() => {
     if (typeof window === "undefined") return "all";
     try {
       const raw = localStorage.getItem("gg.locale.country");
       if (!raw) return "all";
       const parsed = JSON.parse(raw) as { country?: string };
-      const c = (parsed?.country ?? "").toUpperCase();
+      const c = String(parsed?.country ?? "").toUpperCase();
       if (c === "GB" || c === "UK") return "gb";
       if (c === "US") return "us";
       return "all";
@@ -300,19 +308,52 @@ function JobsTab({
       return "all";
     }
   });
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [recency, setRecency] = useState<RecencyFilter>("any");
+  // Query input is decoupled from `qDebounced` so we don't spam the
+  // backend on every keystroke. 300ms debounce — short enough to feel
+  // live, long enough that a typist doesn't fire 10 cosine queries.
+  const [qInput, setQInput] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setQDebounced(qInput.trim()), 300);
+    return () => clearTimeout(id);
+  }, [qInput]);
+
+  const [meta, setMeta] = useState<Pick<JobsResponse, "mode" | "totalCount" | "hasMore" | "q"> | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 20;
+
+  // Reset pagination + clear list whenever the filter inputs change so
+  // the next fetch is fresh.
+  useEffect(() => {
+    setOffset(0);
+  }, [country, view, sourceFilter, recency, qDebounced]);
 
   useEffect(() => {
     let cancelled = false;
-    setJobs(null); // show loading shimmer between filter switches
-    const qs =
-      (country === "all" ? "" : `&country=${country}`) +
-      (view === "applied" ? "&applied=1" : "");
+    setJobs(null);
+    setErr(null);
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: "0" });
+    if (country !== "all") params.set("country", country);
+    if (view === "applied") params.set("applied", "1");
+    if (sourceFilter === "giggrab") params.set("gigOnly", "1");
+    if (recency !== "any") params.set("recency", recency);
+    if (qDebounced) params.set("q", qDebounced);
     (async () => {
       try {
-        const data = await fetchWithAuth<{ jobs: JobRow[] }>(
-          `/api/account/jobs?limit=20${qs}`,
+        const data = await fetchWithAuth<JobsResponse>(
+          `/api/account/jobs?${params.toString()}`,
         );
-        if (!cancelled) setJobs(data.jobs ?? []);
+        if (cancelled) return;
+        setJobs(data.jobs ?? []);
+        setMeta({
+          mode: data.mode,
+          totalCount: data.totalCount,
+          hasMore: data.hasMore,
+          q: data.q,
+        });
       } catch (e) {
         if (!cancelled) {
           setErr(e instanceof Error ? e.message : "Couldn't load jobs.");
@@ -323,70 +364,38 @@ function JobsTab({
     return () => {
       cancelled = true;
     };
-  }, [country, view]);
+  }, [country, view, sourceFilter, recency, qDebounced]);
 
-  if (jobs === null) {
-    return (
-      <div
-        className="rounded-2xl border bg-white p-10 text-center text-sm"
-        style={{ borderColor: "var(--gg-line)", color: "var(--gg-muted)" }}
-      >
-        Loading jobs…
-      </div>
-    );
-  }
-
-  if (jobs.length === 0) {
-    return (
-      <div
-        className="rounded-3xl border bg-white p-10 text-center sm:p-14"
-        style={{
-          borderColor: "var(--gg-line)",
-          boxShadow:
-            "0 30px 80px -50px rgba(14,40,22,0.18), 0 2px 6px rgba(14,40,22,0.04)",
-        }}
-      >
-        <div
-          className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full"
-          style={{
-            background: "var(--gg-green-tint)",
-            color: "var(--gg-green-dark)",
-          }}
-        >
-          <IconBolt width={26} height={26} />
-        </div>
-        <h2
-          className="m-0 mb-3 text-2xl font-extrabold tracking-tight"
-          style={{ color: "var(--gg-ink)" }}
-        >
-          Jobs are on the way
-        </h2>
-        <p
-          className="mx-auto mb-7 max-w-md text-[15px] leading-relaxed"
-          style={{ color: "var(--gg-muted)" }}
-        >
-          {err ??
-            "We're connecting employers right now — live, vetted roles will start surfacing here shortly. Please check back soon."}
-        </p>
-        <div className="flex flex-wrap justify-center gap-3">
-          <button
-            type="button"
-            onClick={onBackToProfile}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
-            style={{ background: "var(--gg-green)" }}
-          >
-            Update your profile
-          </button>
-          <a
-            href={`tel:${HOTLINE.replace(/\s/g, "")}`}
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
-            style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
-          >
-            <IconPhone width={16} height={16} /> Hotline {HOTLINE}
-          </a>
-        </div>
-      </div>
-    );
+  async function loadMore() {
+    if (!jobs || loadingMore || !meta?.hasMore) return;
+    setLoadingMore(true);
+    const nextOffset = offset + PAGE_SIZE;
+    const params = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: String(nextOffset),
+    });
+    if (country !== "all") params.set("country", country);
+    if (view === "applied") params.set("applied", "1");
+    if (sourceFilter === "giggrab") params.set("gigOnly", "1");
+    if (recency !== "any") params.set("recency", recency);
+    if (qDebounced) params.set("q", qDebounced);
+    try {
+      const data = await fetchWithAuth<JobsResponse>(
+        `/api/account/jobs?${params.toString()}`,
+      );
+      setJobs((prev) => (prev ? [...prev, ...(data.jobs ?? [])] : data.jobs ?? []));
+      setOffset(nextOffset);
+      setMeta({
+        mode: data.mode,
+        totalCount: data.totalCount,
+        hasMore: data.hasMore,
+        q: data.q,
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't load more.");
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   return (
@@ -398,10 +407,7 @@ function JobsTab({
           borderColor: "var(--gg-line)",
         }}
       >
-        <p
-          className="m-0 text-sm"
-          style={{ color: "var(--gg-ink-2)" }}
-        >
+        <p className="m-0 text-sm" style={{ color: "var(--gg-ink-2)" }}>
           <strong>To apply, call our hotline.</strong> Tell our AI which
           role and we&apos;ll route you straight to the right person.
         </p>
@@ -413,45 +419,350 @@ function JobsTab({
           <IconPhone width={13} height={13} /> {HOTLINE}
         </a>
       </div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+
+      <SearchInput value={qInput} onChange={setQInput} />
+
+      <div className="mb-4 mt-3 flex flex-wrap items-center gap-2">
         <CountryFilterPills value={country} onChange={setCountry} />
         <ViewFilterPills value={view} onChange={setView} />
+        <SourceFilterPills value={sourceFilter} onChange={setSourceFilter} />
+        <RecencyFilterPills value={recency} onChange={setRecency} />
       </div>
-      {view === "applied" && jobs.length === 0 ? (
-        <div
-          className="rounded-2xl border bg-white p-8 text-center text-sm"
-          style={{ borderColor: "var(--gg-line)", color: "var(--gg-muted)" }}
-        >
-          You haven&apos;t applied to any roles yet. Switch back to <strong
-            className="font-bold"
-            style={{ color: "var(--gg-ink)" }}
-          >
-            All
-          </strong>{" "}
-          to browse, then tap <strong className="font-bold">Apply</strong> on a
-          card.
-        </div>
+
+      <ModeBanner
+        mode={meta?.mode}
+        q={meta?.q ?? ""}
+        totalCount={meta?.totalCount ?? 0}
+        loaded={jobs?.length ?? 0}
+      />
+
+      {jobs === null ? (
+        <ResultsSkeleton />
+      ) : jobs.length === 0 ? (
+        <EmptyResults
+          q={qDebounced}
+          view={view}
+          onBackToProfile={onBackToProfile}
+          onClearSearch={() => setQInput("")}
+          err={err}
+        />
       ) : (
-        <div className="space-y-3">
-          {jobs.map((j) => (
-            <JobCard
-              key={j.id}
-              job={j}
-              candidateEmail={candidateEmail}
-              onApplied={(jobId) =>
-                setJobs((prev) =>
-                  prev
-                    ? prev.map((row) =>
-                        row.id === jobId ? { ...row, applied: true } : row,
-                      )
-                    : prev,
-                )
-              }
-              onEmailUpdated={onEmailUpdated}
-            />
-          ))}
-        </div>
+        <>
+          <div className="space-y-3">
+            {jobs.map((j) => (
+              <JobCard
+                key={j.id}
+                job={j}
+                highlight={qDebounced}
+                candidateEmail={candidateEmail}
+                onApplied={(jobId) =>
+                  setJobs((prev) =>
+                    prev
+                      ? prev.map((row) =>
+                          row.id === jobId ? { ...row, applied: true } : row,
+                        )
+                      : prev,
+                  )
+                }
+                onEmailUpdated={onEmailUpdated}
+              />
+            ))}
+          </div>
+          {meta?.hasMore && (
+            <div className="mt-5 flex justify-center">
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-4 text-xs font-semibold disabled:opacity-60"
+                style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+              >
+                {loadingMore ? "Loading…" : "Load more →"}
+              </button>
+            </div>
+          )}
+        </>
       )}
+    </div>
+  );
+}
+
+function SearchInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Search by title, company or location…"
+        className="w-full rounded-xl border bg-white px-4 py-3 pl-11 text-sm outline-none focus:ring-2"
+        style={{ borderColor: "var(--gg-line)" }}
+      />
+      <svg
+        className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ color: "var(--gg-muted)" }}
+      >
+        <circle cx="11" cy="11" r="7" />
+        <path d="m21 21-4.3-4.3" />
+      </svg>
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          aria-label="Clear search"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-xs"
+          style={{ color: "var(--gg-muted)" }}
+        >
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ModeBanner({
+  mode,
+  q,
+  totalCount,
+  loaded,
+}: {
+  mode: JobsResponse["mode"] | undefined;
+  q: string;
+  totalCount: number;
+  loaded: number;
+}) {
+  if (!mode || loaded === 0) return null;
+  let label = "";
+  let tone: "green" | "blue" | "amber" = "green";
+  if (mode === "exact") {
+    label = `${totalCount} result${totalCount === 1 ? "" : "s"} for "${q}"`;
+    tone = "green";
+  } else if (mode === "similar") {
+    label = `No exact matches for "${q}" — showing similar roles`;
+    tone = "amber";
+  } else if (mode === "personalized") {
+    label = `${totalCount} role${totalCount === 1 ? "" : "s"} — ranked for your profile`;
+    tone = "blue";
+  } else if (mode === "applied") {
+    label = `${totalCount} application${totalCount === 1 ? "" : "s"}`;
+    tone = "green";
+  } else {
+    label = `${totalCount} recent role${totalCount === 1 ? "" : "s"}`;
+    tone = "green";
+  }
+  const bg =
+    tone === "amber"
+      ? "#FEF3C7"
+      : tone === "blue"
+        ? "#DBEAFE"
+        : "var(--gg-green-tint-2)";
+  const color =
+    tone === "amber"
+      ? "#92400E"
+      : tone === "blue"
+        ? "#1E40AF"
+        : "var(--gg-green-deep)";
+  return (
+    <div
+      className="mb-3 rounded-lg px-3 py-2 text-xs font-medium"
+      style={{ background: bg, color }}
+    >
+      {label}
+    </div>
+  );
+}
+
+function EmptyResults({
+  q,
+  view,
+  onBackToProfile,
+  onClearSearch,
+  err,
+}: {
+  q: string;
+  view: ApplyView;
+  onBackToProfile: () => void;
+  onClearSearch: () => void;
+  err: string | null;
+}) {
+  if (view === "applied") {
+    return (
+      <div
+        className="rounded-2xl border bg-white p-8 text-center text-sm"
+        style={{ borderColor: "var(--gg-line)", color: "var(--gg-muted)" }}
+      >
+        You haven&apos;t applied to any roles yet. Switch back to{" "}
+        <strong className="font-bold" style={{ color: "var(--gg-ink)" }}>
+          All
+        </strong>{" "}
+        to browse, then tap{" "}
+        <strong className="font-bold">Apply</strong> on a card.
+      </div>
+    );
+  }
+  if (q) {
+    return (
+      <div
+        className="rounded-2xl border bg-white p-8 text-center text-sm"
+        style={{ borderColor: "var(--gg-line)", color: "var(--gg-muted)" }}
+      >
+        Nothing matches &ldquo;<strong style={{ color: "var(--gg-ink)" }}>{q}</strong>&rdquo;
+        with the current filters.
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={onClearSearch}
+            className="inline-flex h-9 items-center rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+            style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+          >
+            Clear search
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="rounded-3xl border bg-white p-10 text-center sm:p-14"
+      style={{
+        borderColor: "var(--gg-line)",
+        boxShadow:
+          "0 30px 80px -50px rgba(14,40,22,0.18), 0 2px 6px rgba(14,40,22,0.04)",
+      }}
+    >
+      <div
+        className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full"
+        style={{
+          background: "var(--gg-green-tint)",
+          color: "var(--gg-green-dark)",
+        }}
+      >
+        <IconBolt width={26} height={26} />
+      </div>
+      <h2
+        className="m-0 mb-3 text-2xl font-extrabold tracking-tight"
+        style={{ color: "var(--gg-ink)" }}
+      >
+        Jobs are on the way
+      </h2>
+      <p
+        className="mx-auto mb-7 max-w-md text-[15px] leading-relaxed"
+        style={{ color: "var(--gg-muted)" }}
+      >
+        {err ??
+          "We're connecting employers right now — live, vetted roles will start surfacing here shortly. Please check back soon."}
+      </p>
+      <div className="flex flex-wrap justify-center gap-3">
+        <button
+          type="button"
+          onClick={onBackToProfile}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
+          style={{ background: "var(--gg-green)" }}
+        >
+          Update your profile
+        </button>
+        <a
+          href={`tel:${HOTLINE.replace(/\s/g, "")}`}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
+          style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+        >
+          <IconPhone width={16} height={16} /> Hotline {HOTLINE}
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function ResultsSkeleton() {
+  return (
+    <div className="space-y-3">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="rounded-2xl border bg-white p-5"
+          style={{ borderColor: "var(--gg-line)" }}
+        >
+          <div className="h-4 w-2/3 animate-pulse rounded bg-gray-100" />
+          <div className="mt-2 h-3 w-1/3 animate-pulse rounded bg-gray-100" />
+          <div className="mt-4 h-3 w-1/4 animate-pulse rounded bg-gray-100" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SourceFilterPills({
+  value,
+  onChange,
+}: {
+  value: SourceFilter;
+  onChange: (next: SourceFilter) => void;
+}) {
+  const options: { value: SourceFilter; label: string }[] = [
+    { value: "all", label: "All sources" },
+    { value: "giggrab", label: "GigGrab only" },
+  ];
+  return <PillRow value={value} onChange={onChange} options={options} />;
+}
+
+function RecencyFilterPills({
+  value,
+  onChange,
+}: {
+  value: RecencyFilter;
+  onChange: (next: RecencyFilter) => void;
+}) {
+  const options: { value: RecencyFilter; label: string }[] = [
+    { value: "any", label: "Any time" },
+    { value: "7", label: "Last 7 days" },
+    { value: "30", label: "Last 30 days" },
+  ];
+  return <PillRow value={value} onChange={onChange} options={options} />;
+}
+
+function PillRow<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+}) {
+  return (
+    <div
+      className="inline-flex rounded-xl border p-1"
+      style={{ background: "var(--gg-bg)", borderColor: "var(--gg-line)" }}
+    >
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className="rounded-lg px-3 py-1 text-xs font-semibold transition-all"
+          style={{
+            background: o.value === value ? "white" : "transparent",
+            color: o.value === value ? "var(--gg-ink)" : "var(--gg-muted)",
+            boxShadow: o.value === value ? "0 1px 3px rgba(0,0,0,0.06)" : undefined,
+          }}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -556,13 +867,39 @@ type PublicJob = {
   createdAt: string;
 };
 
+function highlightTerm(
+  text: string | null | undefined,
+  term: string,
+): React.ReactNode {
+  if (!text) return text ?? "";
+  if (!term || term.length < 2) return text;
+  // Escape regex metacharacters in the user-typed term.
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "ig"));
+  return parts.map((p, i) =>
+    p.toLowerCase() === term.toLowerCase() ? (
+      <mark
+        key={i}
+        className="rounded px-0.5"
+        style={{ background: "var(--gg-green-tint-2)", color: "var(--gg-green-deep)" }}
+      >
+        {p}
+      </mark>
+    ) : (
+      <span key={i}>{p}</span>
+    ),
+  );
+}
+
 function JobCard({
   job,
+  highlight = "",
   candidateEmail,
   onApplied,
   onEmailUpdated,
 }: {
   job: JobRow;
+  highlight?: string;
   candidateEmail: string | null;
   onApplied: (jobId: string) => void;
   onEmailUpdated: (email: string) => void;
@@ -634,7 +971,7 @@ function JobCard({
               className="m-0 text-[17px] font-bold tracking-tight"
               style={{ color: "var(--gg-ink)" }}
             >
-              {job.title}
+              {highlightTerm(job.title, highlight)}
             </h3>
             {isGigGrabNative && (
               <span
@@ -653,7 +990,10 @@ function JobCard({
             className="mt-0.5 text-sm"
             style={{ color: "var(--gg-ink-2)" }}
           >
-            {[job.company, job.location].filter(Boolean).join(" · ")}
+            {highlightTerm(
+              [job.company, job.location].filter(Boolean).join(" · "),
+              highlight,
+            )}
           </p>
           <p
             className="mt-1.5 mono text-xs"
