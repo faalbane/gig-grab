@@ -25,6 +25,25 @@ import { eq, asc, and, ilike, sql } from "drizzle-orm";
 // hits faster than the previous Anthropic call completes.
 const snapshotInflight = new Set<string>();
 
+// Self-bootstrap: add new profile_card columns if the prod DB is on an
+// older schema version. Runs once per Cloud Run instance. Cheap when
+// columns already exist (PG IF NOT EXISTS is a no-op).
+let profileSchemaEnsured = false;
+export async function ensureProfileSchema(): Promise<void> {
+  if (profileSchemaEnsured) return;
+  try {
+    await db().execute(sql`
+      ALTER TABLE profile_cards
+        ADD COLUMN IF NOT EXISTS education TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS languages_spoken JSONB NOT NULL DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS work_auth TEXT NOT NULL DEFAULT ''
+    `);
+    profileSchemaEnsured = true;
+  } catch (err) {
+    console.warn("[profile/migrate] schema ensure failed", err);
+  }
+}
+
 const CANONICAL_CREDENTIALS = [
   // UK construction / trades
   "CSCS Gold Card",
@@ -114,6 +133,22 @@ const PROFILE_TOOL = {
         description:
           "1-2 sentence neutral profile summary in third person. Lead with trade + years + location.",
       },
+      education: {
+        type: "string",
+        description:
+          "Highest formal education, in one line. Examples: 'BSc Computer Science, University of Manchester (2018)', 'High school, Glasgow', 'NVQ Level 3 Plumbing'. Empty string if the caller didn't mention any.",
+      },
+      languagesSpoken: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Languages the candidate speaks well enough to work in. Examples: ['English', 'Hindi', 'Urdu']. Empty array if only the call language was mentioned.",
+      },
+      workAuth: {
+        type: "string",
+        description:
+          "Work-authorization status as the caller described it. Examples: 'British citizen', 'US H-1B (sponsored)', 'Indian national, needs sponsorship', 'Permanent resident UK'. Empty string if not discussed.",
+      },
       ticketsAndCards: {
         type: "array",
         items: { type: "string" },
@@ -172,6 +207,7 @@ export async function sessionProfileGet(
   res: Response,
   sessionId: string,
 ): Promise<void> {
+  await ensureProfileSchema();
   // Require the HMAC token issued at intake time. Without this, anyone with
   // the sessionId UUID could read the candidate's profile + transcript.
   const token =
@@ -297,6 +333,7 @@ export async function sessionProfileGet(
 
 /** Run Claude over the transcript, write profile_cards row. Idempotent. */
 export async function extractProfile(sessionId: string): Promise<void> {
+  await ensureProfileSchema();
   const [session] = await db()
     .select()
     .from(sessions)
@@ -370,6 +407,9 @@ export async function extractProfile(sessionId: string): Promise<void> {
     yearsExperience: number;
     location: string;
     summary: string;
+    education?: string;
+    languagesSpoken?: string[];
+    workAuth?: string;
     ticketsAndCards?: string[];
     recentProjects?: ProfileProject[];
   };
@@ -401,6 +441,9 @@ export async function extractProfile(sessionId: string): Promise<void> {
     typeof input.yearsExperience === "number" && input.yearsExperience > 0
       ? input.yearsExperience
       : 0;
+  const newEducation = cleanStr(input.education);
+  const newLanguages = cleanArr(input.languagesSpoken);
+  const newWorkAuth = cleanStr(input.workAuth);
   const newTickets = cleanArr(input.ticketsAndCards);
   const newProjects = (input.recentProjects ?? []).filter(
     (p) =>
@@ -435,6 +478,24 @@ export async function extractProfile(sessionId: string): Promise<void> {
       "yearsExperience",
       Math.max(newYears, existing?.yearsExperience ?? 0),
       existing?.yearsExperience ?? 0,
+    ),
+    education: pick(
+      "education",
+      newEducation || existing?.education || "",
+      existing?.education ?? "",
+    ),
+    languagesSpoken: pick(
+      "languagesSpoken",
+      dedupeStrings([
+        ...(existing?.languagesSpoken ?? []),
+        ...newLanguages,
+      ]),
+      existing?.languagesSpoken ?? [],
+    ),
+    workAuth: pick(
+      "workAuth",
+      newWorkAuth || existing?.workAuth || "",
+      existing?.workAuth ?? "",
     ),
     ticketsAndCards: pick(
       "ticketsAndCards",

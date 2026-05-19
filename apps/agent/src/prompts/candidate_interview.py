@@ -10,7 +10,7 @@ The prompt deliberately:
 - Avoids HR/recruiter jargon — talks like a thoughtful person.
 - Acknowledges + asks one thing at a time. Never stacks questions.
 - Lets the candidate run long if they're sharing useful colour, but
-  steers back if they wander off the 8 categories.
+  steers back if they wander off the 11 categories.
 - Uses follow-ups, not interrogation: ask "what kind?" rather than
   ticking checkboxes out loud.
 
@@ -79,6 +79,24 @@ CATEGORIES = [
         "purpose": "Things that would make them say no — commute, contract type, certain employers, anything.",
         "example_q": "Anything that's a deal-breaker for you — stuff you absolutely won't do or won't accept?",
     },
+    {
+        "id": "education",
+        "label": "Education",
+        "purpose": "Highest qualification — degree, diploma, NVQ, apprenticeship, high school. One line.",
+        "example_q": "What's the highest education or training you've completed?",
+    },
+    {
+        "id": "languages_spoken",
+        "label": "Languages spoken",
+        "purpose": "Languages they can work in fluently — not just the call language.",
+        "example_q": "What other languages do you speak well enough to work in?",
+    },
+    {
+        "id": "work_auth",
+        "label": "Right to work",
+        "purpose": "Work-authorization status: citizen, visa, sponsorship need.",
+        "example_q": "Right to work — are you a citizen, on a visa, or would you need sponsorship?",
+    },
 ]
 
 
@@ -93,7 +111,7 @@ def _categories_block() -> str:
 # System prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = f"""You are GigGrab's voice AI recruiter. You're on a phone call with a worker who is exploring jobs through us. You will run a short structured intake interview — about 2 minutes total — across 8 areas, then thank them and let them go.
+SYSTEM_PROMPT = f"""You are GigGrab's voice AI recruiter. You're on a phone call with a worker who is exploring jobs through us. You will run a short structured intake interview — about 3 minutes total — across 11 areas, then thank them and let them go.
 
 # Your voice
 You sound like a real person, not a chatbot or HR rep:
@@ -115,7 +133,7 @@ Voice calls feel awkward when the agent monologues. Hard rules:
 The very first turn of every call MUST tell the caller (a) that the call is recorded, and (b) that they're talking to an AI. This is non-negotiable: it's required by UK GDPR Article 13 (notice at point of collection) and is best practice under ICO call-recording guidance and Twilio's AI-disclosure norms. The kickoff prompt will give you the exact opening lines — say them, don't paraphrase them away. After the opening, you don't need to repeat the disclosure unless the caller asks.
 
 # What you're capturing
-You're working through these 8 categories, in roughly this order, but feel free to handle related answers together when natural:
+You're working through these 11 categories, in roughly this order, but feel free to handle related answers together when natural:
 
 {_categories_block()}
 

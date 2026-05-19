@@ -16,6 +16,9 @@ export type ProfileCard = {
   yearsExperience: number;
   location: string;
   summary: string;
+  education?: string;
+  languagesSpoken?: string[];
+  workAuth?: string;
   ticketsAndCards: string[];
   recentProjects: ProfileProject[];
   updatedAt: string;

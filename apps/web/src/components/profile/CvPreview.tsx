@@ -97,6 +97,34 @@ export function CvPreview({ card, email, sessionId, token, updating }: Props) {
             </Section>
           )}
 
+          {clean(card.education ?? "") && (
+            <Section heading="Education">
+              <p className="text-sm text-gray-800">{clean(card.education ?? "")}</p>
+            </Section>
+          )}
+
+          {(card.languagesSpoken ?? []).filter(Boolean).length > 0 && (
+            <Section heading="Languages">
+              <ul className="flex flex-wrap gap-2">
+                {(card.languagesSpoken ?? []).filter(Boolean).map((l) => (
+                  <li
+                    key={l}
+                    className="inline-flex items-center rounded-full border bg-white px-3 py-1 text-[12.5px] font-medium"
+                    style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink-2)" }}
+                  >
+                    {l}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {clean(card.workAuth ?? "") && (
+            <Section heading="Right to work">
+              <p className="text-sm text-gray-800">{clean(card.workAuth ?? "")}</p>
+            </Section>
+          )}
+
           {(() => {
             const tickets = (card.ticketsAndCards ?? [])
               .map((t) => clean(t))

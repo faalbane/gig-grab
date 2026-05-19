@@ -124,6 +124,9 @@ export type ProfileManualOverrides = Partial<{
   yearsExperience: boolean;
   location: boolean;
   summary: boolean;
+  education: boolean;
+  languagesSpoken: boolean;
+  workAuth: boolean;
   ticketsAndCards: boolean;
   recentProjects: boolean;
 }>;
@@ -137,6 +140,15 @@ export const profileCards = pgTable("profile_cards", {
   yearsExperience: integer("years_experience").notNull(),
   location: text("location").notNull(),
   summary: text("summary").notNull(),
+  // Free-form education line — e.g. "BSc Computer Science, University of
+  // Manchester (2018)". Captured in the Sarah intake call.
+  education: text("education").notNull().default(""),
+  // Languages the candidate speaks fluently enough to work in. Distinct
+  // from `candidates.language` which is just the call-language preference.
+  languagesSpoken: jsonb("languages_spoken").$type<string[]>().notNull().default([]),
+  // Work-authorization status — e.g. "British citizen", "US H-1B",
+  // "Indian national, needs sponsorship". Material for employer fit.
+  workAuth: text("work_auth").notNull().default(""),
   ticketsAndCards: jsonb("tickets_and_cards").$type<string[]>().notNull().default([]),
   recentProjects: jsonb("recent_projects")
     .$type<ProfileProject[]>()

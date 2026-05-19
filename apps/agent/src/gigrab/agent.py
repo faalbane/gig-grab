@@ -342,6 +342,14 @@ def _format_profile_snapshot(p: dict) -> str:
     years = p.get("years_experience") or 0
     location = _sanitize_profile_field(p.get("location"), 120)
     summary = _sanitize_profile_field(p.get("summary"), 600)
+    education = _sanitize_profile_field(p.get("education"), 200)
+    work_auth = _sanitize_profile_field(p.get("work_auth"), 200)
+    languages_raw = p.get("languages_spoken") or []
+    languages = [
+        _sanitize_profile_field(l, 40)
+        for l in languages_raw
+        if _sanitize_profile_field(l, 40)
+    ][:10]
     tickets_raw = p.get("tickets_and_cards") or []
     projects_raw = p.get("recent_projects") or []
     tickets = [
@@ -357,10 +365,16 @@ def _format_profile_snapshot(p: dict) -> str:
         bits.append(f"Years experience: {int(years)}")
     if location:
         bits.append(f"Location: {location}")
+    if education:
+        bits.append(f"Education: {education}")
+    if languages:
+        bits.append("Languages spoken: " + ", ".join(languages))
+    if work_auth:
+        bits.append(f"Right to work: {work_auth}")
     if summary:
         bits.append(f"Summary: {summary}")
     if tickets:
-        bits.append("Tickets & cards: " + ", ".join(tickets))
+        bits.append("Credentials: " + ", ".join(tickets))
     if projects_raw:
         proj_lines: list[str] = []
         for proj in projects_raw[:3]:
@@ -375,6 +389,31 @@ def _format_profile_snapshot(p: dict) -> str:
                 proj_lines.append(f"- {head}{tail}")
         if proj_lines:
             bits.append("Recent projects:\n" + "\n".join(proj_lines))
+
+    # Gap awareness: list fields that look thin so Sarah can prioritise
+    # asking those instead of re-asking what we already know. Skip
+    # everything when the profile is brand-new (nothing to fill against).
+    if bits:
+        missing: list[str] = []
+        if not title or not years or years == 0:
+            missing.append("trade/years")
+        if not location:
+            missing.append("location")
+        if not education:
+            missing.append("education")
+        if not languages:
+            missing.append("languages spoken")
+        if not work_auth:
+            missing.append("right-to-work status")
+        if not tickets:
+            missing.append("credentials/certs")
+        if not projects_raw:
+            missing.append("recent projects")
+        if missing:
+            bits.append(
+                "Gaps to fill (prioritise these this call): " + ", ".join(missing)
+            )
+
     return "\n".join(bits) if bits else "(profile exists but is mostly empty — use this call to enrich it)"
 
 

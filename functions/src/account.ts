@@ -311,6 +311,8 @@ export async function accountProfileUpdate(
   req: Request,
   res: Response,
 ): Promise<void> {
+  const { ensureProfileSchema } = await import("./profile");
+  await ensureProfileSchema();
   const auth = await decodeBearer(req);
   if (!auth) {
     res.status(401).json({ error: "unauthenticated" });
@@ -324,6 +326,9 @@ export async function accountProfileUpdate(
     yearsExperience?: number;
     location?: string;
     summary?: string;
+    education?: string;
+    languagesSpoken?: string[];
+    workAuth?: string;
     ticketsAndCards?: string[];
     recentProjects?: ProfileProject[];
   };
@@ -375,6 +380,14 @@ export async function accountProfileUpdate(
         : (existing?.location ?? ""),
     summary:
       "summary" in body ? clean(body.summary) : (existing?.summary ?? ""),
+    education:
+      "education" in body ? clean(body.education) : (existing?.education ?? ""),
+    languagesSpoken:
+      "languagesSpoken" in body
+        ? cleanArr(body.languagesSpoken)
+        : (existing?.languagesSpoken ?? []),
+    workAuth:
+      "workAuth" in body ? clean(body.workAuth) : (existing?.workAuth ?? ""),
     ticketsAndCards:
       "ticketsAndCards" in body
         ? cleanArr(body.ticketsAndCards)
@@ -393,6 +406,9 @@ export async function accountProfileUpdate(
     "yearsExperience",
     "location",
     "summary",
+    "education",
+    "languagesSpoken",
+    "workAuth",
     "ticketsAndCards",
     "recentProjects",
   ] as const;
@@ -431,6 +447,8 @@ export async function accountProfileUpdate(
 
 /** GET /api/account/me — return the signed-in candidate's profile bits. */
 export async function accountMe(req: Request, res: Response): Promise<void> {
+  const { ensureProfileSchema } = await import("./profile");
+  await ensureProfileSchema();
   const auth = await decodeBearer(req);
   if (!auth) {
     res.status(401).json({ error: "unauthenticated" });
@@ -457,6 +475,9 @@ export async function accountMe(req: Request, res: Response): Promise<void> {
           yearsExperience: card.yearsExperience,
           location: card.location,
           summary: card.summary,
+          education: card.education ?? "",
+          languagesSpoken: card.languagesSpoken ?? [],
+          workAuth: card.workAuth ?? "",
           ticketsAndCards: card.ticketsAndCards ?? [],
           recentProjects: card.recentProjects ?? [],
           updatedAt: card.updatedAt,
