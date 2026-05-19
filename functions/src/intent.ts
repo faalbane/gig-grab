@@ -116,10 +116,13 @@ export async function maybeFlipSessionKind(
   sessionId: string,
   audience: "worker" | "employer",
 ): Promise<void> {
-  if (audience === "employer") {
-    await db()
-      .update(sessions)
-      .set({ kind: "employer_intake" })
-      .where(eq(sessions.id, sessionId));
-  }
+  // Bidirectional. A cached employer who calls as a worker this time
+  // (or vice versa) must be allowed to flip — otherwise the post-call
+  // dispatcher routes their transcript to the wrong extractor.
+  const targetKind =
+    audience === "employer" ? "employer_intake" : "candidate_intake";
+  await db()
+    .update(sessions)
+    .set({ kind: targetKind })
+    .where(eq(sessions.id, sessionId));
 }

@@ -191,32 +191,30 @@ async function applyTwilioStatus(
       .where(eq(sessions.id, sessionId))
       .limit(1);
 
-    if (row?.kind === "employer_intake") {
-      // Already known to be employer (cached or set upfront).
-      void extractEmployerJob(sessionId).catch((err) =>
-        console.error("[extract:job] failed", err),
-      );
-    } else if (row?.candidateId) {
-      // candidate_intake session. Two sub-cases:
-      //   (a) cached audience already known (worker) → run extractProfile
-      //   (b) cached audience unknown → classify transcript, persist,
-      //       then route to correct extractor
+    if (row?.candidateId) {
+      // Always re-classify the transcript on completion. The cached
+      // audience + session.kind are HINTS based on prior calls; they
+      // can't trump what the caller actually said this time. Skipping
+      // this step caused candidate calls from numbers cached as
+      // employer to be routed to extractEmployerJob — producing junk
+      // job rows instead of profile_cards.
       void (async () => {
         try {
-          const [cand] = await db()
-            .select({ matchSignals: candidates.matchSignals })
-            .from(candidates)
-            .where(eq(candidates.id, row.candidateId!))
-            .limit(1);
-          const cached = cand?.matchSignals?.audience;
           let audience: "worker" | "employer";
-          if (cached === "worker" || cached === "employer") {
-            audience = cached;
-          } else {
+          try {
             audience = await classifyAudience(sessionId);
-            await persistAudience(row.candidateId!, audience);
-            await maybeFlipSessionKind(sessionId, audience);
+          } catch (err) {
+            console.warn(
+              "[extract] classifier failed — falling back to session.kind",
+              err,
+            );
+            audience = row.kind === "employer_intake" ? "employer" : "worker";
           }
+          // Persist + flip BEFORE running the extractor so the
+          // extractor's own kind-guard (e.g. extractEmployerJob's
+          // `session.kind !== 'employer_intake' → skip`) lets it run.
+          await persistAudience(row.candidateId!, audience);
+          await maybeFlipSessionKind(sessionId, audience);
           if (audience === "employer") {
             await extractEmployerJob(sessionId);
           } else {
