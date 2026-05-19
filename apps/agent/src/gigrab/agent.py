@@ -97,10 +97,33 @@ logger = logging.getLogger(__name__)
 
 
 # --- Cartesia voice IDs per language --------------------------------------
-# These are stable Cartesia v2 voice IDs that work with Sonic-3 multilingual.
-# Picked warm/professional female voices as a default — the AI recruiter
-# persona reads better with a single consistent voice across languages.
-DEFAULT_CARTESIA_VOICE = "79a125e8-cd45-4c13-8a67-188112f4dd22"
+# Stable Cartesia voice IDs. The agent runs on sonic-2 multilingual,
+# so the LLM-generated reply renders correctly only when we pair it
+# with a voice trained on that language. Falling back to the English
+# default voice for, say, Arabic produces accented gibberish.
+# Picked warm/professional voices to match the "Sarah" recruiter
+# persona — female-leaning, conversational tone.
+DEFAULT_CARTESIA_VOICE = "79a125e8-cd45-4c13-8a67-188112f4dd22"  # English
+CARTESIA_VOICE_BY_LANG: dict[str, str] = {
+    "en": DEFAULT_CARTESIA_VOICE,
+    "ar": "9825cf5f-6aff-412a-80c5-bc58a8d55bc4",  # Maryam — friendly Arabic
+    "hi": "0aac86b7-fa48-43a8-baf5-cb6f8636ed10",  # Hindi female (Sonic-2)
+    "es": "846d6cb0-2301-48b6-9683-48f5618ea2f6",  # Spanish female
+    "fr": "65b25c5d-ff07-4687-a04c-da2f43ef6fa9",  # French female
+    "de": "4d2fd738-3b3d-4368-957a-bb4805275bd9",  # German female
+    "pt": "700d1ee3-a641-4018-ba6e-899dcadc9e2b",  # Portuguese female
+    "it": "9a19e0db-6cd8-4720-b27e-8b6c8c00ef2c",  # Italian female
+}
+
+
+def pick_cartesia_voice(lang: str | None) -> str:
+    """Resolve a Cartesia voice id from the call language. Fallback to
+    English when the language isn't in our hand-curated map — sonic-2
+    will still emit audible English even if the LLM replies in another
+    language, which is a better failure mode than no audio at all."""
+    if not lang:
+        return DEFAULT_CARTESIA_VOICE
+    return CARTESIA_VOICE_BY_LANG.get(lang.lower().split("-")[0], DEFAULT_CARTESIA_VOICE)
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +505,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
 
     tts = CartesiaTTSService(
         api_key=os.environ["CARTESIA_API_KEY"],
-        voice_id=os.getenv("CARTESIA_VOICE_ID", DEFAULT_CARTESIA_VOICE),
+        voice_id=os.getenv("CARTESIA_VOICE_ID") or pick_cartesia_voice(cfg.language),
         model="sonic-2",
         params=CartesiaTTSService.InputParams(
             language=cfg.language,

@@ -278,6 +278,8 @@ export async function twilioInbound(
   // key for "have we seen this number before + what's their intent" —
   // the actual employer record (employers table) is built post-call by
   // extractEmployerJob from the transcript.
+  // Default new candidates to English; if a returning caller has a
+  // language preference on file, the onConflictDoUpdate keeps it.
   const [candidate] = await db()
     .insert(candidates)
     .values({ id: randomUUID(), phone: from, language: "en" })
@@ -286,6 +288,12 @@ export async function twilioInbound(
       set: { lastCallAt: new Date() },
     })
     .returning();
+  // Honour the caller's stored language preference (set by the web
+  // intake flow or last call) so Arabic/Hindi/etc speakers don't get
+  // an English call every time. Falls back to "en" for first-time
+  // callers — they can switch language via the web /voice flow next
+  // time around.
+  const callLanguage = candidate.language || "en";
 
   // Read cached audience from match_signals (set by the post-call
   // classifier the first time someone called). If we don't know yet,
@@ -305,7 +313,7 @@ export async function twilioInbound(
     id: sessionId,
     kind: sessionKind,
     candidateId: candidate.id,
-    language: "en",
+    language: callLanguage,
     status: "ringing",
     twilioCallSid: callSid,
   });
@@ -331,7 +339,7 @@ export async function twilioInbound(
   const connect = twiml.connect();
   const stream = connect.stream({ url: wsBase });
   stream.parameter({ name: "sessionId", value: sessionId });
-  stream.parameter({ name: "language", value: "en" });
+  stream.parameter({ name: "language", value: callLanguage });
   stream.parameter({ name: "audience", value: cachedAudience });
   stream.parameter({ name: "inbound", value: "1" });
 
