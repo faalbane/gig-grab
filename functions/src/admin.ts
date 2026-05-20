@@ -1,7 +1,14 @@
 import { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
-import { db, candidates, sessions, jobs, profileCards } from "@gig-grab/db";
-import { eq, isNull } from "drizzle-orm";
+import {
+  db,
+  candidates,
+  sessions,
+  jobs,
+  profileCards,
+  transcriptTurns,
+} from "@gig-grab/db";
+import { asc, eq, isNull, sql, desc } from "drizzle-orm";
 import { extractProfile } from "./profile";
 import { extractEmployerJob } from "./employer-extraction";
 import {
@@ -178,4 +185,140 @@ export async function adminEmbedBackfill(
   }
 
   res.json({ ok: true, candidatesEmbedded: candidatesDone, jobsEmbedded: jobsDone });
+}
+
+/**
+ * GET /api/admin/inspect-session/:id — read-only trace bundle.
+ * Returns session row + candidate row + profile_card + transcript turns.
+ * Use for RCA on "my profile wasn't created" reports — gives concrete
+ * evidence of what actually happened on the call.
+ * Auth: INGEST_SECRET header. Not for end-user traffic.
+ */
+export async function adminInspectSession(
+  req: Request,
+  res: Response,
+  sessionId: string,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const [s] = await db()
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  if (!s) {
+    res.status(404).json({ error: "session not found" });
+    return;
+  }
+  const [cand] = s.candidateId
+    ? await db()
+        .select()
+        .from(candidates)
+        .where(eq(candidates.id, s.candidateId))
+        .limit(1)
+    : [];
+  const [card] = s.candidateId
+    ? await db()
+        .select()
+        .from(profileCards)
+        .where(eq(profileCards.candidateId, s.candidateId))
+        .limit(1)
+    : [];
+  const turns = await db()
+    .select()
+    .from(transcriptTurns)
+    .where(eq(transcriptTurns.sessionId, sessionId))
+    .orderBy(asc(transcriptTurns.ord));
+
+  res.json({
+    session: s,
+    candidate: cand ?? null,
+    profileCard: card ?? null,
+    transcript: turns,
+    summary: {
+      turnCount: turns.length,
+      hasCard: !!card,
+      cardName: card?.name ?? null,
+      cardYears: card?.yearsExperience ?? null,
+    },
+  });
+}
+
+/**
+ * GET /api/admin/find-candidate?name=Lisa  | ?phone=+44...
+ * Read-only candidate lookup for RCA. Returns the most recent match
+ * + their latest session summary.
+ */
+export async function adminFindCandidate(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const name = String(req.query.name ?? "").trim().slice(0, 80);
+  const phone = String(req.query.phone ?? "").trim().slice(0, 32);
+  if (!name && !phone) {
+    res.status(400).json({ error: "need ?name or ?phone" });
+    return;
+  }
+
+  let rows: Array<{ id: string; phone: string; email: string | null; lastCallAt: Date | null }> = [];
+  if (phone) {
+    rows = await db()
+      .select({
+        id: candidates.id,
+        phone: candidates.phone,
+        email: candidates.email,
+        lastCallAt: candidates.lastCallAt,
+      })
+      .from(candidates)
+      .where(eq(candidates.phone, phone))
+      .limit(5);
+  } else if (name) {
+    // Match candidate.profile_card.name (LIKE) — covers extraction
+    // success; if profile_card is empty we fall back to nothing.
+    const like = `%${name}%`;
+    rows = await db()
+      .select({
+        id: candidates.id,
+        phone: candidates.phone,
+        email: candidates.email,
+        lastCallAt: candidates.lastCallAt,
+      })
+      .from(candidates)
+      .innerJoin(profileCards, eq(profileCards.candidateId, candidates.id))
+      .where(sql`${profileCards.name} ILIKE ${like}`)
+      .limit(10);
+  }
+
+  const out = [];
+  for (const r of rows) {
+    const [card] = await db()
+      .select()
+      .from(profileCards)
+      .where(eq(profileCards.candidateId, r.id))
+      .limit(1);
+    const recentSessions = await db()
+      .select({
+        id: sessions.id,
+        kind: sessions.kind,
+        status: sessions.status,
+        startedAt: sessions.startedAt,
+        endedAt: sessions.endedAt,
+      })
+      .from(sessions)
+      .where(eq(sessions.candidateId, r.id))
+      .orderBy(desc(sessions.startedAt))
+      .limit(5);
+    out.push({ candidate: r, profileCard: card ?? null, recentSessions });
+  }
+  res.json({ matched: out.length, results: out });
 }

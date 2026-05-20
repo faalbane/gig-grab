@@ -31,7 +31,12 @@ import {
   accountJobsList,
   accountJobsApply,
 } from "./jobs-ingest-adzuna";
-import { adminRerunExtract, adminEmbedBackfill } from "./admin";
+import {
+  adminRerunExtract,
+  adminEmbedBackfill,
+  adminInspectSession,
+  adminFindCandidate,
+} from "./admin";
 import { accountJobScore } from "./match-score";
 import {
   employerMe,
@@ -155,6 +160,17 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/admin/embed-backfill") {
         await adminEmbedBackfill(req, res);
+        return;
+      }
+      const inspectMatch = path.match(
+        /^\/admin\/inspect-session\/([0-9a-f-]{36})$/,
+      );
+      if (inspectMatch && method === "GET") {
+        await adminInspectSession(req, res, inspectMatch[1]);
+        return;
+      }
+      if (method === "GET" && path === "/admin/find-candidate") {
+        await adminFindCandidate(req, res);
         return;
       }
       const profileMatch = path.match(
