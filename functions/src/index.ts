@@ -32,6 +32,7 @@ import {
   accountJobsApply,
 } from "./jobs-ingest-adzuna";
 import { adminRerunExtract, adminEmbedBackfill } from "./admin";
+import { accountJobScore } from "./match-score";
 import {
   employerMe,
   employerJobMatches,
@@ -279,6 +280,13 @@ export const api = onRequest(
       );
       if (applyMatch && method === "POST") {
         await accountJobsApply(req, res, applyMatch[1]);
+        return;
+      }
+      const scoreMatch = path.match(
+        /^\/account\/jobs\/([0-9a-f-]{36})\/score$/,
+      );
+      if (scoreMatch && method === "POST") {
+        await accountJobScore(req, res, scoreMatch[1]);
         return;
       }
       if (method === "POST" && path === "/jobs/ingest/adzuna") {

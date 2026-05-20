@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Logo } from "./Logo";
 import { UserMenu } from "./UserMenu";
+import { useAuthUser, signOutCurrentUser } from "@/lib/firebase";
 
 const NAV_LINKS: [string, string][] = [
   ["For workers", "/"],
@@ -22,6 +23,8 @@ type HeaderProps = {
 
 export function Header({ compact = false }: HeaderProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const user = useAuthUser();
+  const isSignedIn = user !== null && user !== false;
 
   return (
     <header className="border-b border-gray-100 bg-white">
@@ -79,15 +82,51 @@ export function Header({ compact = false }: HeaderProps) {
                 </Link>
               </li>
             ))}
-            <li>
-              <Link
-                href="/auth"
-                onClick={() => setMobileOpen(false)}
-                className="block rounded-md px-2 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                Log in
-              </Link>
-            </li>
+            {isSignedIn ? (
+              <>
+                <li>
+                  <Link
+                    href="/dashboard"
+                    onClick={() => setMobileOpen(false)}
+                    className="block rounded-md px-2 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Dashboard
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/settings"
+                    onClick={() => setMobileOpen(false)}
+                    className="block rounded-md px-2 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    Settings
+                  </Link>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setMobileOpen(false);
+                      await signOutCurrentUser();
+                      window.location.href = "/";
+                    }}
+                    className="block w-full rounded-md px-2 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                  >
+                    Sign out
+                  </button>
+                </li>
+              </>
+            ) : (
+              <li>
+                <Link
+                  href="/auth"
+                  onClick={() => setMobileOpen(false)}
+                  className="block rounded-md px-2 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Log in
+                </Link>
+              </li>
+            )}
           </ul>
         </nav>
       )}

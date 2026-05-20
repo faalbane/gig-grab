@@ -288,6 +288,16 @@ export const matches = pgTable(
       .references(() => jobs.id, { onDelete: "cascade" }),
     score: numeric("score", { precision: 4, scale: 3 }).notNull(), // 0.000 .. 1.000
     whyRanked: text("why_ranked").notNull(),
+    // Per-pillar breakdown for the candidate-facing match UI. Shape:
+    //   { experience: 0-100, skills: 0-100, industry: 0-100, rationale?: string }
+    // Null until the candidate (or employer rerank) actually requests
+    // a scoring pass. Cheaper than always running an LLM call on list view.
+    scoreBreakdown: jsonb("score_breakdown").$type<{
+      experience?: number;
+      skills?: number;
+      industry?: number;
+      rationale?: string;
+    }>(),
     status: matchStatusEnum("status").notNull().default("suggested"),
     interviewId: uuid("interview_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

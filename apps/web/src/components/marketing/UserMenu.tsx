@@ -15,6 +15,9 @@ type Me = {
     email: string | null;
     language: string;
   };
+  profile: {
+    name?: string;
+  } | null;
 };
 
 export function UserMenu() {
@@ -66,6 +69,15 @@ export function UserMenu() {
 
   const phoneMissing = me ? !me.candidate.phone : false;
   const seed = user.uid || user.email || user.phoneNumber || "guest";
+  // Prefer the profile_card name (captured on the call) over the auth
+  // provider's displayName. Fall back to email / phone / "Signed in".
+  const firstName = (me?.profile?.name ?? "").trim().split(/\s+/)[0];
+  const headerLabel =
+    firstName ||
+    user.displayName?.trim().split(/\s+/)[0] ||
+    user.email ||
+    user.phoneNumber ||
+    "Signed in";
 
   return (
     <div className="relative" ref={ref}>
@@ -89,9 +101,9 @@ export function UserMenu() {
         <div className="absolute right-0 top-12 z-30 w-64 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
           <div className="border-b border-gray-100 px-3 py-2">
             <p className="truncate text-sm font-medium text-gray-900">
-              {user.displayName || user.email || user.phoneNumber || "Signed in"}
+              {headerLabel}
             </p>
-            {user.email && (
+            {user.email && headerLabel !== user.email && (
               <p className="truncate text-xs text-gray-500">{user.email}</p>
             )}
           </div>

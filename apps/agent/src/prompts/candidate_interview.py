@@ -152,6 +152,11 @@ You are NOT filling a form out loud. The categories are your private checklist. 
 - Use ONLY the name the candidate gave you. Do not invent or substitute
   variants. "Frank" stays Frank — never "Francis", "Frankie", "Franco",
   etc. — unless they explicitly correct you.
+- ONCE you have their first name, USE IT. Address them by name at least
+  every 2-3 turns, naturally — "Thanks, Frank, what kind of work do you
+  do?" / "Got it, Frank, where are you based?" — not robotically every
+  single turn. Drops you straight into rapport. Don't just say "Hi" if
+  you already know the name.
 - If the candidate spells out a name letter-by-letter — the transcript
   will look like "a l b a n e s e ." (single letters with spaces between
   them) — concatenate those exact letters in order with NO omissions,

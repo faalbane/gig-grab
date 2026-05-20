@@ -81,6 +81,16 @@ function AuthCardInner() {
     try {
       const conf = await startPhoneSignIn(e164);
       setConfirmation(conf);
+      // Remember the phone so a return visit prefills it instead of
+      // making the user type their number again. Cofounder asked
+      // 2026-05-20 for this trust/speed win.
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("gg.lastPhone", e164);
+        } catch {
+          // ignore quota / disabled-storage
+        }
+      }
     } catch (err) {
       setError(friendlyAuthError(err) ?? "Couldn't send the code.");
     } finally {
@@ -185,7 +195,16 @@ function AuthCardInner() {
               >
                 Phone number
               </label>
-              <PhoneE164Input onChange={onPhoneChange} showPreview={false} />
+              <PhoneE164Input
+                onChange={onPhoneChange}
+                showPreview={false}
+                defaultE164={
+                  params.get("phone") ??
+                  (typeof window !== "undefined"
+                    ? localStorage.getItem("gg.lastPhone") ?? undefined
+                    : undefined)
+                }
+              />
               <button
                 type="submit"
                 disabled={busy !== null || !phoneValid}

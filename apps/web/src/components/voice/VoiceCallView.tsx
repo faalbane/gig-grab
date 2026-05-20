@@ -346,8 +346,11 @@ export function VoiceCallView({
           )}
         </div>
 
-        {/* RIGHT — live preview pane. Worker = CV being built. Employer = job posting being built. */}
-        <div>
+        {/* RIGHT — live preview pane. Worker = CV being built. Employer = job posting being built.
+            Sticky on lg+ so the candidate can read their CV as it fills in
+            while the transcript pane on the left scrolls independently.
+            Mobile (single column) just stacks naturally. */}
+        <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:self-start">
           {isEmployer ? (
             <JobPreview draft={jobDraft} updating={snapshotting} />
           ) : (

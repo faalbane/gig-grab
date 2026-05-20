@@ -796,6 +796,15 @@ function CountryFilterPills({
   return <PillRow value={value} onChange={onChange} options={options} />;
 }
 
+type MatchScore = {
+  overall: number;
+  experience: number;
+  skills: number;
+  industry: number;
+  rationale: string;
+  cached?: boolean;
+};
+
 type PublicJob = {
   id: string;
   title: string;
@@ -858,6 +867,24 @@ function JobCard({
   const [details, setDetails] = useState<PublicJob | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [matchScore, setMatchScore] = useState<MatchScore | null>(null);
+  const [loadingScore, setLoadingScore] = useState(false);
+
+  async function loadScore() {
+    if (loadingScore) return;
+    setLoadingScore(true);
+    try {
+      const data = await fetchWithAuth<MatchScore>(
+        `/api/account/jobs/${job.id}/score`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      setMatchScore(data);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't score this match.");
+    } finally {
+      setLoadingScore(false);
+    }
+  }
 
   // jobs.source === 'voice' means the brief was built on a GigGrab
   // employer-intake call. 'link' / 'ats' / 'upload' come from external
@@ -904,13 +931,13 @@ function JobCard({
 
   return (
     <article
-      className="rounded-2xl border bg-white p-5"
+      className="overflow-hidden rounded-2xl border bg-white p-4 sm:p-5"
       style={{
         borderColor: job.applied ? "var(--gg-green-tint)" : "var(--gg-line)",
         background: job.applied ? "var(--gg-green-tint-2)" : "white",
       }}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3
@@ -959,10 +986,10 @@ function JobCard({
               .join(" · ") || "—"}
           </p>
         </div>
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {job.applied ? (
             <span
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white"
+              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white sm:flex-initial"
               style={{ background: "var(--gg-green-dark)" }}
             >
               <CheckMark /> Applied
@@ -972,7 +999,7 @@ function JobCard({
               type="button"
               onClick={apply}
               disabled={busy}
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-60"
+              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-60 sm:flex-initial"
               style={{ background: "var(--gg-green)" }}
             >
               {busy ? "Applying…" : "Apply"}
@@ -980,7 +1007,7 @@ function JobCard({
           )}
           <a
             href={`tel:${HOTLINE.replace(/\s/g, "")}`}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold sm:flex-initial"
             style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
           >
             <IconPhone width={13} height={13} /> Call
@@ -988,11 +1015,26 @@ function JobCard({
           <button
             type="button"
             onClick={toggleDetails}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold sm:flex-initial"
             style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
           >
             {detailsOpen ? "Hide details" : "View details"}
           </button>
+          {!matchScore && (
+            <button
+              type="button"
+              onClick={loadScore}
+              disabled={loadingScore}
+              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border-[1.5px] px-3 text-xs font-semibold disabled:opacity-60 sm:flex-initial"
+              style={{
+                borderColor: "var(--gg-green-tint)",
+                background: "var(--gg-green-tint-2)",
+                color: "var(--gg-green-deep)",
+              }}
+            >
+              {loadingScore ? "Scoring…" : "Match score"}
+            </button>
+          )}
           {(() => {
             const safeUrl = safeHttpUrl(job.applyUrl);
             return safeUrl ? (
@@ -1000,7 +1042,7 @@ function JobCard({
                 href={safeUrl}
                 target="_blank"
                 rel="noreferrer nofollow"
-                className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold"
+                className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold sm:flex-initial"
                 style={{
                   borderColor: "var(--gg-line-2)",
                   color: "var(--gg-ink)",
@@ -1012,9 +1054,12 @@ function JobCard({
           })()}
         </div>
       </div>
+      {matchScore && (
+        <MatchScoreCard score={matchScore} onRecompute={loadScore} loading={loadingScore} />
+      )}
       {detailsOpen && (
         <div
-          className="mt-4 rounded-xl border bg-white p-4"
+          className="mt-4 overflow-hidden rounded-xl border bg-white p-4"
           style={{ borderColor: "var(--gg-line-2)" }}
         >
           {loadingDetails || !details ? (
@@ -1022,73 +1067,7 @@ function JobCard({
               Loading details…
             </p>
           ) : (
-            <div className="space-y-3 text-sm">
-              {details.description && (
-                <p style={{ color: "var(--gg-ink-2)" }}>{details.description}</p>
-              )}
-              {details.projectScope && (
-                <div>
-                  <p
-                    className="mono text-[10px] font-semibold uppercase"
-                    style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
-                  >
-                    Scope
-                  </p>
-                  <p className="mt-1" style={{ color: "var(--gg-ink-2)" }}>
-                    {details.projectScope}
-                  </p>
-                </div>
-              )}
-              {details.mustHaves.length > 0 && (
-                <div>
-                  <p
-                    className="mono text-[10px] font-semibold uppercase"
-                    style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
-                  >
-                    Must-haves
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {details.mustHaves.map((m, i) => (
-                      <span
-                        key={i}
-                        className="rounded-full px-2 py-0.5 text-xs font-medium"
-                        style={{
-                          background: "var(--gg-green-tint-2)",
-                          color: "var(--gg-green-deep)",
-                        }}
-                      >
-                        {m}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {details.dealBreakers.length > 0 && (
-                <div>
-                  <p
-                    className="mono text-[10px] font-semibold uppercase"
-                    style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
-                  >
-                    Deal-breakers
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {details.dealBreakers.map((m, i) => (
-                      <span
-                        key={i}
-                        className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700"
-                      >
-                        {m}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {details.requiredCount > 1 && (
-                <p style={{ color: "var(--gg-muted)" }}>
-                  {details.requiredCount} workers needed
-                </p>
-              )}
-            </div>
+            <JobDetailsTemplate details={details} />
           )}
         </div>
       )}
@@ -1240,6 +1219,269 @@ function AppliedConfirmation({
           {emailErr}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Compact match-score card. Renders three pillar rings + overall +
+ * rationale. Shows under the JobCard once the candidate hits "Match
+ * score". Recompute button costs another LLM call so the label says so.
+ */
+function MatchScoreCard({
+  score,
+  onRecompute,
+  loading,
+}: {
+  score: MatchScore;
+  onRecompute: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div
+      className="mt-4 overflow-hidden rounded-xl border bg-white p-4"
+      style={{ borderColor: "var(--gg-green-tint)" }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <ScoreRing label="Overall" value={score.overall} size={56} tone="hero" />
+          <div>
+            <p
+              className="mono text-[10px] font-semibold uppercase"
+              style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
+            >
+              Match score
+            </p>
+            <p
+              className="m-0 text-sm leading-snug"
+              style={{ color: "var(--gg-ink-2)" }}
+            >
+              {score.rationale}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRecompute}
+          disabled={loading}
+          className="text-[11px] font-semibold underline disabled:opacity-60"
+          style={{ color: "var(--gg-muted)" }}
+        >
+          {loading ? "Recomputing…" : "Re-score"}
+        </button>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-3 sm:max-w-md">
+        <ScoreRing label="Experience" value={score.experience} />
+        <ScoreRing label="Skills" value={score.skills} />
+        <ScoreRing label="Industry" value={score.industry} />
+      </div>
+    </div>
+  );
+}
+
+function ScoreRing({
+  label,
+  value,
+  size = 44,
+  tone = "pillar",
+}: {
+  label: string;
+  value: number;
+  size?: number;
+  tone?: "pillar" | "hero";
+}) {
+  const stroke = size <= 50 ? 4 : 5;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const v = Math.max(0, Math.min(100, value));
+  const dash = (c * v) / 100;
+  const color =
+    v >= 70
+      ? "var(--gg-green-dark)"
+      : v >= 40
+        ? "#D97706"
+        : "#9CA3AF";
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            stroke="#E5E7EB"
+            strokeWidth={stroke}
+            fill="none"
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            stroke={color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            fill="none"
+            strokeDasharray={`${dash} ${c - dash}`}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        </svg>
+        <span
+          className="absolute inset-0 grid place-items-center font-bold"
+          style={{
+            color: tone === "hero" ? "var(--gg-ink)" : "var(--gg-ink-2)",
+            fontSize: size <= 50 ? 11 : 14,
+          }}
+        >
+          {v}%
+        </span>
+      </div>
+      {tone === "pillar" && (
+        <p
+          className="mt-1 text-[10px] font-semibold uppercase"
+          style={{ color: "var(--gg-muted)", letterSpacing: "0.1em" }}
+        >
+          {label}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Unified job-details template. Used by every JobCard regardless of
+ * source. Renders the same hierarchy whether the brief was extracted
+ * from a GigGrab voice call (scope + must-haves + count) or scraped
+ * from an Adzuna feed (description paragraph). Long descriptions get a
+ * read-more toggle so they don't push the card off the viewport.
+ */
+function JobDetailsTemplate({ details }: { details: PublicJob }) {
+  const [expanded, setExpanded] = useState(false);
+  const description = (details.description ?? "").trim();
+  const PREVIEW_LEN = 320;
+  const long = description.length > PREVIEW_LEN;
+  const shown = !long || expanded ? description : description.slice(0, PREVIEW_LEN).trimEnd() + "…";
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <DetailRow label="Workers needed" value={String(details.requiredCount)} />
+        <DetailRow
+          label="Posted"
+          value={new Date(details.createdAt).toLocaleDateString()}
+        />
+      </div>
+
+      {description && (
+        <Section label="About this role">
+          <p
+            className="whitespace-pre-wrap leading-relaxed [word-break:break-word]"
+            style={{ color: "var(--gg-ink-2)" }}
+          >
+            {shown}
+          </p>
+          {long && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-1.5 text-[11px] font-semibold underline"
+              style={{ color: "var(--gg-green-dark)" }}
+            >
+              {expanded ? "Show less" : "Read more"}
+            </button>
+          )}
+        </Section>
+      )}
+
+      {details.projectScope && (
+        <Section label="Scope">
+          <p
+            className="whitespace-pre-wrap leading-relaxed [word-break:break-word]"
+            style={{ color: "var(--gg-ink-2)" }}
+          >
+            {details.projectScope}
+          </p>
+        </Section>
+      )}
+
+      {details.whatYoullNeed.length > 0 && (
+        <Section label="What you'll need">
+          <ul className="list-disc space-y-0.5 pl-5" style={{ color: "var(--gg-ink-2)" }}>
+            {details.whatYoullNeed.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {details.mustHaves.length > 0 && (
+        <Section label="Must-haves">
+          <div className="flex flex-wrap gap-1.5">
+            {details.mustHaves.map((m, i) => (
+              <span
+                key={i}
+                className="rounded-full px-2.5 py-0.5 text-xs font-medium"
+                style={{
+                  background: "var(--gg-green-tint-2)",
+                  color: "var(--gg-green-deep)",
+                }}
+              >
+                {m}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {details.dealBreakers.length > 0 && (
+        <Section label="Deal-breakers">
+          <div className="flex flex-wrap gap-1.5">
+            {details.dealBreakers.map((m, i) => (
+              <span
+                key={i}
+                className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700"
+              >
+                {m}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p
+        className="mono text-[10px] font-semibold uppercase"
+        style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
+      >
+        {label}
+      </p>
+      <p className="mt-0.5" style={{ color: "var(--gg-ink-2)" }}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function Section({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p
+        className="mono text-[10px] font-semibold uppercase"
+        style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
+      >
+        {label}
+      </p>
+      <div className="mt-1.5">{children}</div>
     </div>
   );
 }
