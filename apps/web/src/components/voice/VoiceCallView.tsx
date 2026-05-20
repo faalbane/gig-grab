@@ -371,14 +371,31 @@ export function VoiceCallView({
             </p>
           )}
           {phase === "ended" && (
-            <p
-              className="mt-3 text-center text-xs"
-              style={{ color: "var(--gg-muted)" }}
-            >
-              {isEmployer
-                ? "Finalising your job posting…"
-                : "Refreshing your CV from the call…"}
-            </p>
+            <div className="mt-3 space-y-2 text-center">
+              <p className="text-xs" style={{ color: "var(--gg-muted)" }}>
+                {isEmployer
+                  ? "Finalising your job posting…"
+                  : "Refreshing your CV from the call…"}
+              </p>
+              {isEmployer && (
+                <Link
+                  href="/dashboard/hiring"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-bold text-white"
+                  style={{ background: "var(--gg-green)" }}
+                >
+                  View in dashboard →
+                </Link>
+              )}
+              {!isEmployer && (
+                <Link
+                  href="/dashboard"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-bold text-white"
+                  style={{ background: "var(--gg-green)" }}
+                >
+                  View my profile →
+                </Link>
+              )}
+            </div>
           )}
         </div>
       </div>

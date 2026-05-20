@@ -6,6 +6,8 @@ import { Header } from "@/components/marketing/Header";
 import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
 
+type CandidateProbe = { profile: unknown | null };
+
 type EmployerJob = {
   id: string;
   title: string;
@@ -69,6 +71,7 @@ type View = "matches" | "applicants" | "edit";
 export default function EmployerDashboardPage() {
   const user = useAuthUser();
   const [me, setMe] = useState<EmployerMe | null>(null);
+  const [hasWorkerProfile, setHasWorkerProfile] = useState<boolean | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [matches, setMatches] = useState<Record<string, MatchesResponse>>({});
@@ -76,6 +79,24 @@ export default function EmployerDashboardPage() {
   const [loadingMatches, setLoadingMatches] = useState<string | null>(null);
   const [reranking, setReranking] = useState<string | null>(null);
   const [panelView, setPanelView] = useState<Record<string, View>>({});
+
+  // Probe whether the signed-in user ALSO has a candidate profile.
+  // Drives the ModeToggle visibility — pure employers don't need the
+  // "Looking for work" pill cluttering their hiring view.
+  useEffect(() => {
+    if (user === null || user === false) return;
+    let cancelled = false;
+    fetchWithAuth<CandidateProbe>("/api/account/me")
+      .then((d) => {
+        if (!cancelled) setHasWorkerProfile(!!d.profile);
+      })
+      .catch(() => {
+        if (!cancelled) setHasWorkerProfile(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   async function refreshJobs() {
     try {
@@ -237,7 +258,11 @@ export default function EmployerDashboardPage() {
         }}
       >
         <div className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
-          <ModeToggle active="hiring" />
+          <ModeToggle
+            active="hiring"
+            showWorkerPill={hasWorkerProfile === true}
+            showHiringPill={true}
+          />
           {err && (
             <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
               {err}
@@ -363,6 +388,7 @@ export default function EmployerDashboardPage() {
 }
 
 function PostRoleCard({ hasJobs }: { hasJobs: boolean }) {
+  const HOTLINE = process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910";
   return (
     <div
       className="rounded-2xl border bg-white p-5"
@@ -392,11 +418,13 @@ function PostRoleCard({ hasJobs }: { hasJobs: boolean }) {
             Start hiring (use my mic) →
           </Link>
           <a
-            href={`tel:${(process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910").replace(/\s/g, "")}`}
+            href={`tel:${HOTLINE.replace(/\s/g, "")}`}
             className="inline-flex h-10 items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-4 text-sm font-semibold"
             style={{ borderColor: "var(--gg-line-2)", color: "var(--gg-ink)" }}
+            title={`Dial ${HOTLINE}`}
           >
-            Call the hotline
+            <span className="hidden sm:inline">Or call</span>{" "}
+            <span className="font-mono">{HOTLINE}</span>
           </a>
         </div>
       </div>
@@ -958,12 +986,12 @@ function EmptyEmployerState() {
         >
           Start hiring (use my mic) →
         </Link>
-        <Link
+        <a
           href={`tel:${(process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910").replace(/\s/g, "")}`}
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700"
+          className="rounded-md border border-gray-300 px-4 py-2 font-mono text-sm font-medium text-gray-700"
         >
-          Call the hotline
-        </Link>
+          {process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910"}
+        </a>
       </div>
     </div>
   );
