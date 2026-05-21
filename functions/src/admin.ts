@@ -188,6 +188,60 @@ export async function adminEmbedBackfill(
 }
 
 /**
+ * POST /api/admin/jobs/pause-source?source=adzuna
+ *
+ * Soft-delete: sets status='paused' on all jobs with the given source.
+ * Reversible — toggle them back via PATCH employer/jobs/:id (employer
+ * action) or another admin pass. Use this when retiring a feed (e.g.
+ * pivoting Adzuna ingest from UK trades to Houston construction; the
+ * old UK trade jobs should be hidden from the candidate feed without
+ * burning the historical data).
+ *
+ * Optional ?keepHoustonConstruction=1 keeps active any adzuna job
+ * whose location contains "Houston" — useful right after retargeting
+ * so the new Houston pulls don't get clobbered by the same sweep.
+ */
+export async function adminPauseJobSource(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const source = String(req.query.source ?? "").toLowerCase();
+  const allowed = new Set(["adzuna", "voice", "link", "ats", "upload"]);
+  if (!allowed.has(source)) {
+    res.status(400).json({ error: "bad source" });
+    return;
+  }
+  const keepHouston =
+    String(req.query.keepHoustonConstruction ?? "") === "1";
+
+  // brief.source uniquely tags adzuna rows. jobs.source is the enum.
+  let filter = sql`structured_brief->>'source' = ${source}`;
+  if (source !== "adzuna") {
+    filter = sql`${jobs.source} = ${source as "voice" | "link" | "ats" | "upload"}`;
+  }
+  if (keepHouston) {
+    filter = sql`${filter} AND ${jobs.location} NOT ILIKE '%Houston%'`;
+  }
+
+  const result = await db()
+    .update(jobs)
+    .set({ status: "paused", updatedAt: new Date() })
+    .where(sql`${filter} AND ${jobs.status} = 'active'`)
+    .returning({ id: jobs.id });
+
+  console.log(
+    `[admin/pause-source] source=${source} keepHouston=${keepHouston} paused=${result.length}`,
+  );
+  res.json({ ok: true, paused: result.length });
+}
+
+/**
  * GET /api/admin/inspect-session/:id — read-only trace bundle.
  * Returns session row + candidate row + profile_card + transcript turns.
  * Use for RCA on "my profile wasn't created" reports — gives concrete

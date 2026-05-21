@@ -312,28 +312,26 @@ const REFRESH_QUERIES: Array<{
   what: string;
   where?: string;
 }> = [
-  // UK
-  { country: "gb", what: "carpenter" },
-  { country: "gb", what: "electrician" },
-  { country: "gb", what: "plumber" },
-  { country: "gb", what: "nurse" },
-  { country: "gb", what: "chef" },
-  { country: "gb", what: "hgv driver" },
-  { country: "gb", what: "warehouse" },
-  { country: "gb", what: "care worker" },
-  { country: "gb", what: "software engineer" },
-  { country: "gb", what: "product designer" },
-  // US
-  { country: "us", what: "carpenter" },
-  { country: "us", what: "electrician" },
-  { country: "us", what: "plumber" },
-  { country: "us", what: "nurse" },
-  { country: "us", what: "chef" },
-  { country: "us", what: "truck driver" },
-  { country: "us", what: "warehouse" },
-  { country: "us", what: "home health aide" },
-  { country: "us", what: "software engineer" },
-  { country: "us", what: "product designer" },
+  // Pilot focus 2026-05-21: Houston construction. Trades + adjacent
+  // roles. Old UK/US trades list retired — re-add when pilot expands.
+  { country: "us", what: "construction", where: "Houston, TX" },
+  { country: "us", what: "construction worker", where: "Houston, TX" },
+  { country: "us", what: "construction manager", where: "Houston, TX" },
+  { country: "us", what: "carpenter", where: "Houston, TX" },
+  { country: "us", what: "electrician", where: "Houston, TX" },
+  { country: "us", what: "plumber", where: "Houston, TX" },
+  { country: "us", what: "welder", where: "Houston, TX" },
+  { country: "us", what: "concrete", where: "Houston, TX" },
+  { country: "us", what: "framer", where: "Houston, TX" },
+  { country: "us", what: "drywall", where: "Houston, TX" },
+  { country: "us", what: "roofer", where: "Houston, TX" },
+  { country: "us", what: "HVAC", where: "Houston, TX" },
+  { country: "us", what: "heavy equipment operator", where: "Houston, TX" },
+  { country: "us", what: "site superintendent", where: "Houston, TX" },
+  { country: "us", what: "project manager construction", where: "Houston, TX" },
+  { country: "us", what: "estimator construction", where: "Houston, TX" },
+  { country: "us", what: "general laborer", where: "Houston, TX" },
+  { country: "us", what: "pipefitter", where: "Houston, TX" },
 ];
 
 /**
