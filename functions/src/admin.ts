@@ -201,6 +201,33 @@ export async function adminEmbedBackfill(
  * whose location contains "Houston" — useful right after retargeting
  * so the new Houston pulls don't get clobbered by the same sweep.
  */
+/**
+ * POST /api/admin/jobs/fix-currency
+ * One-off: rewrite leading `£` to `$` on active jobs whose
+ * structured_brief->>'country' is 'us'. Earlier formatPay always
+ * stamped £ regardless of country.
+ */
+export async function adminFixCurrency(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const r = await db().execute(sql`
+    UPDATE jobs
+    SET pay = REPLACE(pay, '£', '$'),
+        updated_at = now()
+    WHERE pay LIKE '£%'
+      AND structured_brief->>'country' = 'us'
+  `);
+  const updated = (r as unknown as { rowCount?: number }).rowCount ?? 0;
+  res.json({ ok: true, updated });
+}
+
 export async function adminPauseJobSource(
   req: Request,
   res: Response,

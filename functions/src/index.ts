@@ -37,6 +37,7 @@ import {
   adminInspectSession,
   adminFindCandidate,
   adminPauseJobSource,
+  adminFixCurrency,
 } from "./admin";
 import { accountJobScore } from "./match-score";
 import {
@@ -176,6 +177,10 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/admin/jobs/pause-source") {
         await adminPauseJobSource(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/admin/jobs/fix-currency") {
+        await adminFixCurrency(req, res);
         return;
       }
       const profileMatch = path.match(

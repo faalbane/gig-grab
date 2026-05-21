@@ -89,12 +89,14 @@ async function ensureAggregatorEmployer(): Promise<string> {
   return AGGREGATOR_ID;
 }
 
-function formatPay(r: AdzunaResult): string | null {
+function formatPay(r: AdzunaResult, country: "gb" | "us" = "gb"): string | null {
   const lo = r.salary_min;
   const hi = r.salary_max;
   if (!lo && !hi) return null;
-  const fmt = (n: number) =>
-    `£${Math.round(n).toLocaleString("en-GB")}`;
+  const isUS = country === "us";
+  const symbol = isUS ? "$" : "£";
+  const locale = isUS ? "en-US" : "en-GB";
+  const fmt = (n: number) => `${symbol}${Math.round(n).toLocaleString(locale)}`;
   if (lo && hi && lo !== hi) return `${fmt(lo)}–${fmt(hi)}`;
   return fmt(lo ?? hi ?? 0);
 }
@@ -166,7 +168,8 @@ export async function jobsIngestAdzuna(
     return;
   }
 
-  const country = String(req.query.country ?? "gb").slice(0, 2).toLowerCase();
+  const countryRaw = String(req.query.country ?? "gb").slice(0, 2).toLowerCase();
+  const country: "gb" | "us" = countryRaw === "us" ? "us" : "gb";
   const page = Math.max(1, Number(req.query.page ?? 1) || 1);
 
   // One-shot backfill: stamp ?backfill=gb (or us) onto every existing
@@ -239,8 +242,9 @@ export async function jobsIngestAdzuna(
       }
       const title = (r.title ?? "").trim().slice(0, 240) || "Untitled role";
       const location =
-        r.location?.display_name?.trim().slice(0, 240) || "UK";
-      const pay = formatPay(r);
+        r.location?.display_name?.trim().slice(0, 240) ||
+        (country === "us" ? "USA" : "UK");
+      const pay = formatPay(r, country);
       const description = (r.description ?? "").trim().slice(0, 2000);
       const company = (r.company?.display_name ?? "").trim().slice(0, 160);
 
@@ -424,7 +428,7 @@ export async function jobsIngestAdzunaRefreshAll(
         const location =
           row.location?.display_name?.trim().slice(0, 240) ||
           (q.country === "us" ? "USA" : "UK");
-        const pay = formatPay(row);
+        const pay = formatPay(row, q.country);
         const description = (row.description ?? "").trim().slice(0, 2000);
         const company = (row.company?.display_name ?? "").trim().slice(0, 160);
         const insertRow: NewJob = {
