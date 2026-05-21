@@ -38,6 +38,7 @@ import {
   adminFindCandidate,
   adminPauseJobSource,
   adminFixCurrency,
+  adminCreateReadonlyUser,
 } from "./admin";
 import { accountJobScore } from "./match-score";
 import {
@@ -181,6 +182,10 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/admin/jobs/fix-currency") {
         await adminFixCurrency(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/admin/db/create-readonly-user") {
+        await adminCreateReadonlyUser(req, res);
         return;
       }
       const profileMatch = path.match(

@@ -11,6 +11,7 @@ import {
   type VoiceCallController,
 } from "@/lib/web-voice";
 import { CvPreview } from "@/components/profile/CvPreview";
+import { track } from "@/components/PostHogProvider";
 import { JobPreview, type JobDraft } from "@/components/voice/JobPreview";
 import {
   IconPhone,
@@ -232,6 +233,10 @@ export function VoiceCallView({
       );
       setSession(j);
       startedAtRef.current = Date.now();
+      track("voice_call_started", {
+        audience,
+        sessionId: j.sessionId,
+      });
       const ctrl = await startVoiceCall(j.wsUrl, {
         onStateChange: (s) => {
           if (s === "live") setPhase("live");
@@ -260,6 +265,12 @@ export function VoiceCallView({
   async function stop() {
     await controllerRef.current?.end();
     setPhase("ended");
+    track("voice_call_ended", {
+      audience,
+      sessionId: session?.sessionId ?? null,
+      turns: turns.length,
+      durationMs: startedAtRef.current ? Date.now() - startedAtRef.current : null,
+    });
   }
 
   if (user === null) {

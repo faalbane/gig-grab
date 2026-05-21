@@ -207,6 +207,69 @@ export async function adminEmbedBackfill(
  * structured_brief->>'country' is 'us'. Earlier formatPay always
  * stamped £ regardless of country.
  */
+/**
+ * POST /api/admin/db/create-readonly-user
+ *   ?username=studytaco_reader&password=...
+ *
+ * One-shot: creates (or updates) a read-only Postgres role with SELECT
+ * on all current + future tables in the public schema. Used to grant
+ * analysts (e.g. support@studytaco.com) read access without giving
+ * them the app-side connection string.
+ *
+ * Auth: INGEST_SECRET header. Idempotent: running again resets the
+ * password and re-grants.
+ */
+export async function adminCreateReadonlyUser(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const usernameRaw = String(req.query.username ?? "").trim();
+  const password = String(req.query.password ?? "").trim();
+  if (!/^[a-zA-Z][a-zA-Z0-9_]{2,40}$/.test(usernameRaw)) {
+    res.status(400).json({ error: "bad username (a-z, 0-9, _, 3-40)" });
+    return;
+  }
+  if (password.length < 16) {
+    res.status(400).json({ error: "password must be >= 16 chars" });
+    return;
+  }
+
+  // Identifier-quote the username; literal-escape the password.
+  const userId = sql.raw(`"${usernameRaw.replace(/"/g, '""')}"`);
+  const pwLit = sql.raw(`'${password.replace(/'/g, "''")}'`);
+
+  // CREATE OR ALTER + grants. Bracket each statement so a partial
+  // failure surfaces.
+  try {
+    await db().execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = ${usernameRaw}) THEN
+          EXECUTE 'CREATE ROLE ' || quote_ident(${usernameRaw}) || ' LOGIN PASSWORD ' || quote_literal(${password});
+        ELSE
+          EXECUTE 'ALTER ROLE ' || quote_ident(${usernameRaw}) || ' LOGIN PASSWORD ' || quote_literal(${password});
+        END IF;
+      END$$;
+    `);
+    void userId;
+    void pwLit;
+    await db().execute(sql.raw(`GRANT CONNECT ON DATABASE "postgres" TO "${usernameRaw}"`));
+    await db().execute(sql.raw(`GRANT USAGE ON SCHEMA public TO "${usernameRaw}"`));
+    await db().execute(sql.raw(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${usernameRaw}"`));
+    await db().execute(sql.raw(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO "${usernameRaw}"`));
+    res.json({ ok: true, username: usernameRaw });
+  } catch (err) {
+    console.error("[admin/create-readonly-user] failed", err);
+    res.status(500).json({ error: "create_failed", message: String(err) });
+  }
+}
+
 export async function adminFixCurrency(
   req: Request,
   res: Response,
@@ -217,15 +280,56 @@ export async function adminFixCurrency(
     res.status(401).json({ error: "unauthorised" });
     return;
   }
-  const r = await db().execute(sql`
+  // Use chr(163) so we don't depend on the source-file encoding of £
+  // matching the DB row's encoding byte-for-byte.
+  const filter = sql`
+    pay LIKE '%' || chr(163) || '%' AND (
+      structured_brief->>'country' = 'us'
+      OR location ILIKE '%USA%'
+      OR location ILIKE '%, TX%'
+      OR location ILIKE '%, NY%'
+      OR location ILIKE '%, CA%'
+      OR location ILIKE '%, FL%'
+      OR location ILIKE '%, IL%'
+      OR location ILIKE '%Houston%'
+    )
+  `;
+  const [{ n: before }] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(jobs)
+    .where(sql`${filter}`);
+
+  await db().execute(sql`
     UPDATE jobs
-    SET pay = REPLACE(pay, '£', '$'),
+    SET pay = REPLACE(pay, chr(163), '$'),
         updated_at = now()
-    WHERE pay LIKE '£%'
-      AND structured_brief->>'country' = 'us'
+    WHERE ${filter}
   `);
-  const updated = (r as unknown as { rowCount?: number }).rowCount ?? 0;
-  res.json({ ok: true, updated });
+
+  const [{ n: after }] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(jobs)
+    .where(sql`${filter}`);
+
+  // Debug breakdown — figure out which side of the AND is zero.
+  const [debug] = await db()
+    .select({
+      payHasPound: sql<number>`count(*) FILTER (WHERE pay LIKE '%' || chr(163) || '%')::int`,
+      payHasDollar: sql<number>`count(*) FILTER (WHERE pay LIKE '%$%')::int`,
+      countryUs: sql<number>`count(*) FILTER (WHERE structured_brief->>'country' = 'us')::int`,
+      locHouston: sql<number>`count(*) FILTER (WHERE location ILIKE '%Houston%')::int`,
+      total: sql<number>`count(*)::int`,
+      sample: sql<string>`(SELECT pay FROM jobs WHERE pay IS NOT NULL ORDER BY created_at DESC LIMIT 1)`,
+    })
+    .from(jobs);
+
+  res.json({
+    ok: true,
+    before: Number(before),
+    after: Number(after),
+    updated: Number(before) - Number(after),
+    debug,
+  });
 }
 
 export async function adminPauseJobSource(

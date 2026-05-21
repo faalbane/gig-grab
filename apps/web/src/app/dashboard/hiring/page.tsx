@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
 import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
+import { track } from "@/components/PostHogProvider";
 
 type CandidateProbe = { profile: unknown | null };
 
@@ -113,6 +114,7 @@ export default function EmployerDashboardPage() {
         method: "PATCH",
         body: JSON.stringify({ status }),
       });
+      track("employer_job_status_changed", { jobId, status });
       // Optimistic local update so the dropdown reflects immediately.
       setMe((prev) =>
         prev
@@ -188,6 +190,7 @@ export default function EmployerDashboardPage() {
         `/api/account/employer/jobs/${jobId}/candidates/${candidateId}/action`,
         { method: "POST", body: JSON.stringify({ action }) },
       );
+      track("employer_candidate_action", { jobId, candidateId, action });
       await Promise.all([loadApplicants(jobId), refreshJobs()]);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Action failed.");

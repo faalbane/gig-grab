@@ -7,6 +7,7 @@ import { Header } from "@/components/marketing/Header";
 import { EditableCvCard } from "@/components/profile/EditableCvCard";
 import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
+import { track } from "@/components/PostHogProvider";
 import { IconPhone, IconBolt } from "@/components/marketing/hotline/icons";
 import type { ProfileCard } from "@/lib/types";
 
@@ -879,6 +880,18 @@ function JobCard({
         { method: "POST", body: JSON.stringify({}) },
       );
       setMatchScore(data);
+      track("match_score_viewed", {
+        jobId: job.id,
+        title: job.title,
+        company: job.company ?? null,
+        source: job.source ?? null,
+        applyUrl: job.applyUrl ?? null,
+        overall: data.overall,
+        experience: data.experience,
+        skills: data.skills,
+        industry: data.industry,
+        cached: !!data.cached,
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't score this match.");
     } finally {
@@ -919,6 +932,14 @@ function JobCard({
       await fetchWithAuth(`/api/account/jobs/${job.id}/apply`, {
         method: "POST",
         body: JSON.stringify({ via: "web" }),
+      });
+      track("job_applied", {
+        jobId: job.id,
+        title: job.title,
+        company: job.company ?? null,
+        country: job.country ?? null,
+        source: job.source ?? null,
+        applyUrl: job.applyUrl ?? null,
       });
       onApplied(job.id);
       setShowJustApplied(true);
