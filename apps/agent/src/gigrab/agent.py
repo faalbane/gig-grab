@@ -45,6 +45,16 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
+try:
+    from deepgram import LiveOptions  # type: ignore
+except ImportError:  # pragma: no cover
+    LiveOptions = None  # type: ignore
+try:
+    from pipecat.audio.interruptions.min_words_interruption_strategy import (  # type: ignore
+        MinWordsInterruptionStrategy,
+    )
+except ImportError:  # pragma: no cover
+    MinWordsInterruptionStrategy = None  # type: ignore
 # Pipecat 0.0.108 still ships the legacy paths but emits DeprecationWarnings
 # on import. We use the new paths to silence them and stay compatible with
 # whatever 0.x point release is current.
@@ -205,6 +215,18 @@ class TranscriptDbWriter(FrameProcessor):
         self._ai_buffer: list[str] = []
         self._buffering = False
 
+    async def _write_turn_safe(self, *, speaker: str, text: str) -> None:
+        try:
+            await db.write_transcript_turn(
+                session_id=self.session_id,
+                ord_=_next_ord(self.session_id),
+                speaker=speaker,
+                text=text,
+                ms_offset=_ms_offset(self.session_id),
+            )
+        except Exception as e:
+            logger.warning(f"[db] {speaker} turn write failed: {e}")
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
@@ -214,16 +236,14 @@ class TranscriptDbWriter(FrameProcessor):
 
         if self.role == "candidate":
             if isinstance(frame, TranscriptionFrame) and frame.text.strip():
-                try:
-                    await db.write_transcript_turn(
-                        session_id=self.session_id,
-                        ord_=_next_ord(self.session_id),
+                # Fire-and-forget so Cloud SQL RTT (~30-50 ms Frankfurt →
+                # europe-west2) never blocks the next frame from STT.
+                asyncio.create_task(
+                    self._write_turn_safe(
                         speaker="candidate",
                         text=frame.text.strip(),
-                        ms_offset=_ms_offset(self.session_id),
                     )
-                except Exception as e:
-                    logger.warning(f"[db] candidate turn write failed: {e}")
+                )
             return
 
         # role == "ai"
@@ -236,16 +256,9 @@ class TranscriptDbWriter(FrameProcessor):
             text = _clean_ai_text("".join(self._ai_buffer))
             self._ai_buffer = []
             if text:
-                try:
-                    await db.write_transcript_turn(
-                        session_id=self.session_id,
-                        ord_=_next_ord(self.session_id),
-                        speaker="ai",
-                        text=text,
-                        ms_offset=_ms_offset(self.session_id),
-                    )
-                except Exception as e:
-                    logger.warning(f"[db] ai turn write failed: {e}")
+                asyncio.create_task(
+                    self._write_turn_safe(speaker="ai", text=text)
+                )
             return
         # Buffer LLM streaming token chunks. Exclude transcription subclasses
         # (which inherit from TextFrame) so STT echoes never land here.
@@ -609,12 +622,33 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     # multilingual model which is slower and less confident on softer EN
     # speech. The hotline still supports 30+ languages because cfg.language
     # is set per-session by /intake/start or the inbound webhook.
-    stt = DeepgramSTTService(
+    # endpointing=300 finalises ~300ms after speech stop (default ~10ms is
+    # too jittery on Twilio mu-law). utterance_end_ms=1000 lets Deepgram
+    # emit UtteranceEnd if speaker pauses but VAD never re-triggers.
+    # interim_results so the user_aggregator + barge-in can react before
+    # final. punctuate+smart_format so the LLM sees clean text.
+    stt_kwargs: dict = dict(
         api_key=os.environ["DEEPGRAM_API_KEY"],
-        model="nova-3",
-        language=cfg.language or "en",
         name="deepgram-stt",
     )
+    if LiveOptions is not None:
+        stt_kwargs["live_options"] = LiveOptions(
+            model="nova-3",
+            language=cfg.language or "en",
+            encoding="linear16",
+            sample_rate=16000 if cfg.surface == "web" else 8000,
+            channels=1,
+            interim_results=True,
+            smart_format=True,
+            punctuate=True,
+            endpointing=300,
+            utterance_end_ms=1000,
+            vad_events=True,
+        )
+    else:
+        stt_kwargs["model"] = "nova-3"
+        stt_kwargs["language"] = cfg.language or "en"
+    stt = DeepgramSTTService(**stt_kwargs)
 
     llm = GroqLLMService(
         api_key=os.environ["GROQ_API_KEY"],
@@ -622,10 +656,14 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         name="groq-llm",
     )
 
+    # Cartesia sample_rate matches the transport rate to skip a resample
+    # hop. Phone = 8 kHz (Twilio mu-law), web = 16 kHz raw PCM.
+    cartesia_sr = 16000 if cfg.surface == "web" else 8000
     tts = CartesiaTTSService(
         api_key=os.environ["CARTESIA_API_KEY"],
         voice_id=os.getenv("CARTESIA_VOICE_ID") or pick_cartesia_voice(cfg.language),
         model="sonic-2",
+        sample_rate=cartesia_sr,
         params=CartesiaTTSService.InputParams(
             language=cfg.language,
         ),
@@ -671,17 +709,18 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
                 ),
             }
         )
-    # VAD tuning — defaults (confidence=0.7, stop_secs=0.8, min_volume=0.6)
-    # were dropping softer / accented speech and waiting too long after the
-    # caller finished talking. Lowering thresholds + cutting stop_secs to
-    # 500 ms makes the agent respond faster and pick up quieter utterances.
+    # VAD tuning — stop_secs=0.25 = ~250 ms of trailing silence before we
+    # mark the turn ended (Deepgram endpointing+UtteranceEnd already provide
+    # a finalisation signal; we just need VAD to confirm). Lower confidence
+    # so soft / accented speech still gates. Twilio mu-law 8 kHz: 0.5 min
+    # volume catches typical phone audio without false-firing on hiss.
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
                     confidence=0.55,
-                    stop_secs=0.4,
+                    stop_secs=0.25,
                     min_volume=0.5,
                 ),
             ),
@@ -715,13 +754,23 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     # is 8 kHz mu-law, browser raw-PCM is 16 kHz. Set both inputs+outputs
     # to match the surface so the audio path doesn't resample lossily.
     sr = 16000 if cfg.surface == "web" else 8000
+    # Barge-in tuning: allow_interruptions=True lets the user_aggregator
+    # emit StartInterruptionFrame when VAD on transport.input() fires
+    # mid-TTS. MinWordsInterruptionStrategy filters one-word noise ("uh",
+    # "yeah") so Sarah doesn't get cut off by acknowledgements — needs at
+    # least 2 detected words before the interrupt is honoured.
+    pipeline_params_kwargs: dict = dict(
+        audio_in_sample_rate=sr,
+        audio_out_sample_rate=sr,
+        allow_interruptions=True,
+    )
+    if MinWordsInterruptionStrategy is not None:
+        pipeline_params_kwargs["interruption_strategies"] = [
+            MinWordsInterruptionStrategy(min_words=2),
+        ]
     task = PipelineTask(
         pipeline,
-        params=PipelineParams(
-            audio_in_sample_rate=sr,
-            audio_out_sample_rate=sr,
-            allow_interruptions=True,
-        ),
+        params=PipelineParams(**pipeline_params_kwargs),
     )
 
     # Canonical pipecat 0.0.108 kickoff (matches
@@ -815,6 +864,19 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
         stream_sid=stream_sid,
         params=TwilioFrameSerializer.InputParams(auto_hang_up=False),
     )
+    # Transport-side VAD: emits UserStartedSpeakingFrame mid-TTS so the
+    # pipeline can interrupt Sarah when the caller barges in. Without this
+    # interruption never fires regardless of allow_interruptions. Uses
+    # tighter VADParams than the aggregator (start_secs=0.15 so barges
+    # register fast; stop_secs=0.4 so brief pauses don't end the turn).
+    transport_vad = SileroVADAnalyzer(
+        params=VADParams(
+            confidence=0.55,
+            start_secs=0.15,
+            stop_secs=0.4,
+            min_volume=0.5,
+        ),
+    )
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
         params=FastAPIWebsocketParams(
@@ -822,8 +884,7 @@ async def run_agent(websocket, cfg: AgentConfig, *, stream_sid: str):
             audio_out_enabled=True,
             add_wav_header=False,
             serializer=serializer,
-            # vad_analyzer moved to LLMUserAggregatorParams in build_pipeline
-            # (pipecat 0.0.108 deprecation).
+            vad_analyzer=transport_vad,
         ),
     )
 
@@ -845,6 +906,15 @@ async def run_web_agent(websocket, cfg: AgentConfig):
     from .web_serializer import RawPcm16Serializer  # avoid import-cycle on phone-only deploys
 
     serializer = RawPcm16Serializer()
+    # Transport-side VAD for browser barge-in (same rationale as phone).
+    transport_vad = SileroVADAnalyzer(
+        params=VADParams(
+            confidence=0.55,
+            start_secs=0.15,
+            stop_secs=0.4,
+            min_volume=0.5,
+        ),
+    )
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
         params=FastAPIWebsocketParams(
@@ -852,6 +922,7 @@ async def run_web_agent(websocket, cfg: AgentConfig):
             audio_out_enabled=True,
             add_wav_header=False,
             serializer=serializer,
+            vad_analyzer=transport_vad,
         ),
     )
 
