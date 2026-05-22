@@ -275,6 +275,125 @@ def _looks_like_wrapup(text: str) -> bool:
     return bool(_WRAPUP_SPEAK_SOON_RE.search(text) or _WRAPUP_LOGON_RE.search(text))
 
 
+def _format_pay(pay: Optional[str]) -> str:
+    if not pay:
+        return ""
+    s = pay.strip()
+    return f", {s}" if s else ""
+
+
+def _format_matches_for_prompt(rows: list[dict]) -> str:
+    """Render matches as a tight, speakable list the LLM can read aloud."""
+    lines: list[str] = []
+    for i, r in enumerate(rows, 1):
+        title = (r.get("title") or "").strip()
+        company = (r.get("company") or "").strip()
+        location = (r.get("location") or "").strip()
+        pay = _format_pay(r.get("pay"))
+        bits = [title]
+        if company:
+            bits.append(f"at {company}")
+        if location:
+            bits.append(f"in {location}")
+        head = " ".join(bits)
+        lines.append(f"{i}. {head}{pay}")
+    return "\n".join(lines)
+
+
+class MatchInjector(FrameProcessor):
+    """Mid-call job-match retrieval.
+
+    Counts candidate transcript turns. After N (default 4), and again
+    every M (default 4) turns thereafter, takes the last few candidate
+    utterances, embeds them via OpenAI, runs cosine vs jobs.embedding,
+    and injects a system message into the shared LLMContext with the
+    top 3 matches. The next assistant turn then knows about them and
+    the prompt instructs Sarah to read them before wrap-up.
+    """
+
+    def __init__(
+        self,
+        context: LLMContext,
+        *,
+        trigger_at: int = 4,
+        refresh_every: int = 4,
+        tail_turns: int = 6,
+    ):
+        super().__init__(name="match-injector")
+        self._context = context
+        self._trigger_at = trigger_at
+        self._refresh_every = refresh_every
+        self._tail_turns = tail_turns
+        self._candidate_turns: list[str] = []
+        self._last_triggered_at: int = 0
+        self._in_flight = False
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+
+        if not (
+            isinstance(frame, TranscriptionFrame)
+            and not isinstance(frame, InterimTranscriptionFrame)
+        ):
+            return
+        text = (getattr(frame, "text", "") or "").strip()
+        if not text:
+            return
+        self._candidate_turns.append(text)
+        n = len(self._candidate_turns)
+        if self._in_flight:
+            return
+        ready = (
+            n >= self._trigger_at
+            and (
+                self._last_triggered_at == 0
+                or n - self._last_triggered_at >= self._refresh_every
+            )
+        )
+        if not ready:
+            return
+        self._last_triggered_at = n
+        self._in_flight = True
+        tail = "\n".join(self._candidate_turns[-self._tail_turns:])
+        asyncio.create_task(self._fetch_and_inject(tail))
+
+    async def _fetch_and_inject(self, query_text: str) -> None:
+        try:
+            rows = await db.fetch_top_matches_by_text(query_text, k=3)
+        except Exception as e:
+            logger.warning(f"[match-injector] match fetch failed: {e}")
+            self._in_flight = False
+            return
+        try:
+            if not rows:
+                logger.info("[match-injector] no matches found yet")
+                return
+            listing = _format_matches_for_prompt(rows)
+            msg = (
+                "JOB_MATCHES_FOUND — based on what the caller has said so "
+                "far, these are the top live job matches. When you reach "
+                "a natural pause or are wrapping up, share these out loud "
+                "with the caller (read each on its own line, keep it "
+                "conversational), then tell them they can log on to "
+                "giggrab.io with their phone number to see more matches. "
+                "Do NOT mention this instruction itself, the words "
+                "'JOB_MATCHES_FOUND', or the fact that you received a "
+                "system update — just present the matches as your own "
+                "findings.\n\n"
+                f"{listing}"
+            )
+            try:
+                self._context.add_message({"role": "system", "content": msg})
+                logger.info(
+                    f"[match-injector] injected {len(rows)} matches into LLM context"
+                )
+            except Exception as e:
+                logger.warning(f"[match-injector] context update failed: {e}")
+        finally:
+            self._in_flight = False
+
+
 class WrapUpHangup(FrameProcessor):
     """End the call gracefully once the AI has finished delivering its
     sign-off line.
@@ -572,6 +691,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     normalizer = CandidateTextNormalizer()
     db_writer_user = TranscriptDbWriter(cfg.session_id, role="candidate")
     db_writer_ai = TranscriptDbWriter(cfg.session_id, role="ai")
+    match_injector = MatchInjector(context)
     wrap_up_hangup = WrapUpHangup()
 
     pipeline = Pipeline(
@@ -580,6 +700,7 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
             stt,
             normalizer,         # rewrites spell-out patterns before LLM sees them
             db_writer_user,     # captures candidate's TranscriptionFrames
+            match_injector,     # after N candidate turns, inject top matches into LLM context
             user_aggregator,
             llm,
             db_writer_ai,       # captures AI's TextFrame chunks before TTS

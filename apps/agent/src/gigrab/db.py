@@ -139,3 +139,55 @@ async def store_match_signals(
             candidate_id,
             json.dumps(signals),
         )
+
+
+_openai_client = None
+
+
+def _get_openai_client():
+    global _openai_client
+    if _openai_client is None:
+        from openai import AsyncOpenAI
+
+        _openai_client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    return _openai_client
+
+
+async def fetch_top_matches_by_text(
+    query_text: str, k: int = 3
+) -> list[dict]:
+    """Embed the query_text and cosine-rank active jobs against it.
+
+    Returns up to k rows of {title, company, location, pay}. Empty list on
+    any failure or if no jobs have embeddings."""
+    text = (query_text or "").strip()
+    if not text:
+        return []
+    if not os.environ.get("OPENAI_API_KEY"):
+        return []
+    try:
+        client = _get_openai_client()
+        resp = await client.embeddings.create(
+            model="text-embedding-3-small",
+            input=text[:8000],
+        )
+        vec = resp.data[0].embedding
+    except Exception:
+        return []
+
+    vec_lit = "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT j.title, e.name AS company, j.location, j.pay
+            FROM jobs j
+            JOIN employers e ON e.id = j.employer_id
+            WHERE j.status = 'active' AND j.embedding IS NOT NULL
+            ORDER BY j.embedding <=> $1::vector
+            LIMIT $2
+            """,
+            vec_lit,
+            k,
+        )
+        return [dict(r) for r in rows]
