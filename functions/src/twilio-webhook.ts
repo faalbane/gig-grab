@@ -14,6 +14,37 @@ import {
 import { verifyTwilioSignature } from "./security";
 
 /**
+ * Kick off dual-channel call recording on a Twilio call.
+ * Fire-and-forget — we don't await the response or block the TwiML.
+ * Completed-recording webhook (twilioRecordingStatus below) writes the
+ * audio URL onto sessions.audio_url.
+ */
+function startCallRecording(callSid: string, sessionId: string): void {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const tok = process.env.TWILIO_AUTH_TOKEN;
+  if (!sid || !tok || !callSid) return;
+  const apiBase =
+    process.env.PUBLIC_API_URL ??
+    "https://api-353215144615.europe-west2.run.app";
+  const body = new URLSearchParams({
+    RecordingChannels: "dual",
+    RecordingStatusCallback: `${apiBase}/twilio/recording-status/${sessionId}`,
+    RecordingStatusCallbackEvent: "completed",
+  });
+  void fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls/${callSid}/Recordings.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from(`${sid}:${tok}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    },
+  ).catch((err) => console.error("[recording/start] failed", err));
+}
+
+/**
  * Twilio fetches this URL when the candidate picks up the call.
  * Returns TwiML that connects the call to our Pipecat agent's WebSocket.
  *
@@ -351,6 +382,11 @@ export async function twilioInbound(
   stream.parameter({ name: "audience", value: cachedAudience });
   stream.parameter({ name: "inbound", value: "1" });
 
+  // Kick off dual-channel call recording. Twilio fires
+  // /twilio/recording-status/:sessionId on completion which writes the
+  // mp3 URL onto sessions.audio_url for the admin transcript viewer.
+  startCallRecording(callSid, sessionId);
+
   // Tell Twilio to POST status updates for this call to the per-session
   // status URL. That triggers extractProfile + SMS on completion.
   // (Configured via the StatusCallback attribute on Twilio's call leg —
@@ -359,4 +395,39 @@ export async function twilioInbound(
   void apiBase; // explicit no-op so the const stays referenced
 
   res.type("text/xml").send(twiml.toString());
+}
+
+/**
+ * POST /twilio/recording-status/:sessionId — fired by Twilio when a
+ * call recording reaches a terminal state. Writes the recording URL
+ * onto sessions.audio_url so the admin transcript viewer can offer
+ * audio playback.
+ */
+export async function twilioRecordingStatus(
+  req: Request,
+  res: Response,
+  sessionId: string,
+): Promise<void> {
+  if (!verifyTwilioSignature(req)) {
+    console.warn(`[twilio/recording-status] invalid sig on ${sessionId}`);
+    res.status(403).send();
+    return;
+  }
+  const recordingSid = String(req.body?.RecordingSid ?? "").trim();
+  const recordingUrl = String(req.body?.RecordingUrl ?? "").trim();
+  const status = String(req.body?.RecordingStatus ?? "").trim();
+  if (!recordingSid || status !== "completed") {
+    res.status(204).send();
+    return;
+  }
+  // Twilio's RecordingUrl needs `.mp3` appended for audio download.
+  const mp3 = `${recordingUrl}.mp3`;
+  await db()
+    .update(sessions)
+    .set({ audioUrl: mp3 })
+    .where(eq(sessions.id, sessionId));
+  console.log(
+    `[recording/saved] session=${sessionId.slice(0, 8)} recording=${recordingSid} url=${mp3}`,
+  );
+  res.status(204).send();
 }

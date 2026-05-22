@@ -231,6 +231,58 @@ export async function adminEmbedBackfill(
  * Auth: INGEST_SECRET. Safe to share in any log / chat / dashboard.
  */
 /**
+ * GET /api/admin/recording/:sessionId.mp3
+ * Proxies the Twilio recording mp3 with our account credentials so
+ * the admin web UI can play it without exposing Twilio account
+ * credentials to the browser. INGEST_SECRET gated.
+ */
+export async function adminRecordingProxy(
+  req: Request,
+  res: Response,
+  sessionId: string,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  // Accept the secret via header (server-side calls) OR query string
+  // (browser <audio src=...> tags can't set custom headers).
+  const got =
+    (req.header("x-ingest-secret") ?? "") ||
+    String(req.query.k ?? "");
+  if (!expected || got !== expected) {
+    res.status(401).send();
+    return;
+  }
+  const [s] = await db()
+    .select({ audioUrl: sessions.audioUrl })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  if (!s?.audioUrl) {
+    res.status(404).send();
+    return;
+  }
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const tok = process.env.TWILIO_AUTH_TOKEN;
+  if (!sid || !tok) {
+    res.status(500).send();
+    return;
+  }
+  const upstream = await fetch(s.audioUrl, {
+    headers: {
+      Authorization:
+        "Basic " + Buffer.from(`${sid}:${tok}`).toString("base64"),
+    },
+  });
+  if (!upstream.ok || !upstream.body) {
+    console.error("[recording/proxy] twilio non-2xx", upstream.status);
+    res.status(502).send();
+    return;
+  }
+  res.setHeader("Content-Type", "audio/mpeg");
+  const buf = Buffer.from(await upstream.arrayBuffer());
+  res.status(200).send(buf);
+}
+
+/**
  * GET /api/admin/sessions/recent?limit=30&kind=candidate_intake
  * Lists recent sessions for the team transcript-review UI. PII
  * minimised — phone is masked to last 4 digits.

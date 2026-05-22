@@ -162,6 +162,10 @@ export async function intakeStart(req: Request, res: Response): Promise<void> {
       statusCallback: `${apiBase}/twilio/status/${sessionId}`,
       statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
       timeout: 30,
+      record: true,
+      recordingChannels: "dual",
+      recordingStatusCallback: `${apiBase}/twilio/recording-status/${sessionId}`,
+      recordingStatusCallbackEvent: ["completed"],
     });
     await db()
       .update(sessions)

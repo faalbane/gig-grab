@@ -37,7 +37,14 @@ type Turn = {
 };
 
 type InspectResponse = {
-  session: { id: string; kind: string; status: string; startedAt: string; endedAt: string | null };
+  session: {
+    id: string;
+    kind: string;
+    status: string;
+    startedAt: string;
+    endedAt: string | null;
+    audioUrl?: string | null;
+  };
   candidate: { phone: string; email: string | null } | null;
   profileCard: { name?: string; title?: string; yearsExperience?: number; location?: string; summary?: string } | null;
   transcript: Turn[];
@@ -264,6 +271,13 @@ function AdminConsole({
 
 function TranscriptDetail({ data }: { data: InspectResponse }) {
   const card = data.profileCard ?? {};
+  const audioSrc = data.session.audioUrl
+    ? `/api/admin/recording/${data.session.id}.mp3?k=${encodeURIComponent(
+        typeof window !== "undefined"
+          ? sessionStorage.getItem(STORAGE_KEY) ?? ""
+          : "",
+      )}`
+    : null;
   return (
     <article
       className="rounded-2xl border bg-white p-5"
@@ -290,6 +304,17 @@ function TranscriptDetail({ data }: { data: InspectResponse }) {
           >
             {card.summary}
           </p>
+        )}
+        {audioSrc && (
+          <div className="mt-4">
+            <p
+              className="mono text-[10px] font-semibold uppercase"
+              style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
+            >
+              Call audio
+            </p>
+            <audio controls src={audioSrc} className="mt-1.5 w-full" />
+          </div>
         )}
       </header>
       <ol className="space-y-2">

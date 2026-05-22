@@ -9,6 +9,7 @@ import {
   twilioStatus,
   twilioInbound,
   twilioInboundStatus,
+  twilioRecordingStatus,
 } from "./twilio-webhook";
 import { sessionProfileGet } from "./profile";
 import { sessionStatusGet, sessionTurnsGet } from "./sessions";
@@ -42,6 +43,7 @@ import {
   adminSeedFreeTier,
   adminStats,
   adminSessionsRecent,
+  adminRecordingProxy,
 } from "./admin";
 import { accountJobScore } from "./match-score";
 import {
@@ -166,6 +168,13 @@ export const api = onRequest(
         await twilioInboundStatus(req, res);
         return;
       }
+      const recStatusMatch = path.match(
+        /^\/twilio\/recording-status\/([0-9a-f-]{36})$/,
+      );
+      if (recStatusMatch && method === "POST") {
+        await twilioRecordingStatus(req, res, recStatusMatch[1]);
+        return;
+      }
       const rerunMatch = path.match(
         /^\/admin\/rerun-extract\/([0-9a-f-]{36})$/,
       );
@@ -210,6 +219,13 @@ export const api = onRequest(
       }
       if (method === "GET" && path === "/admin/sessions/recent") {
         await adminSessionsRecent(req, res);
+        return;
+      }
+      const adminRecMatch = path.match(
+        /^\/admin\/recording\/([0-9a-f-]{36})\.mp3$/,
+      );
+      if (adminRecMatch && method === "GET") {
+        await adminRecordingProxy(req, res, adminRecMatch[1]);
         return;
       }
       if (method === "GET" && path === "/billing/me") {
