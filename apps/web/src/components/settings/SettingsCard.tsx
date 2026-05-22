@@ -8,6 +8,7 @@ import {
 } from "@/lib/firebase";
 import { PhoneE164Input } from "@/components/common/PhoneE164Input";
 import { Avatar } from "@/components/common/Avatar";
+import { BillingBanner } from "@/components/billing/BillingBanner";
 
 type Me = {
   candidate: {
@@ -177,6 +178,8 @@ export function SettingsCard() {
           Sign out
         </button>
       </section>
+
+      <BillingBanner variant="card" />
 
       <section className="rounded-2xl border border-gray-200 bg-white p-6">
         <h2 className="text-sm font-semibold text-gray-900">Phone number</h2>

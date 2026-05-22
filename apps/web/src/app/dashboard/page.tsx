@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Header } from "@/components/marketing/Header";
 import { EditableCvCard } from "@/components/profile/EditableCvCard";
 import { ModeToggle } from "@/components/dashboard/ModeToggle";
+import { BillingBanner } from "@/components/billing/BillingBanner";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
 import { track } from "@/components/PostHogProvider";
 import { IconPhone, IconBolt } from "@/components/marketing/hotline/icons";
@@ -98,6 +99,9 @@ function DashboardPageInner() {
       >
         <div className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
           <ModeToggle active="worker" />
+          <div className="mb-4">
+            <BillingBanner variant="compact" showSuccessFromQuery />
+          </div>
           <div className="mb-6">
             <p
               className="mono text-xs font-semibold uppercase"
