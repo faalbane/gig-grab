@@ -54,6 +54,7 @@ import {
   employerJobUpdate,
   employerJobApplicants,
   employerCandidateAction,
+  employerRequestCallback,
   publicJobGet,
 } from "./employer";
 
@@ -300,6 +301,10 @@ export const api = onRequest(
       }
       if (method === "GET" && path === "/account/employer/me") {
         await employerMe(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/account/employer/request-callback") {
+        await employerRequestCallback(req, res);
         return;
       }
       const empMatchMatch = path.match(

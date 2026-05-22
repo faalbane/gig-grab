@@ -234,6 +234,14 @@ export const employers = pgTable("employers", {
   company: text("company").notNull(),
   calendarId: text("calendar_id"),
   calendarProvider: varchar("calendar_provider", { length: 16 }), // google | microsoft
+  // Pilot paywall: every employer gets 3 free candidate reviews
+  // (shortlist / interview / reject = "review" event). After that the
+  // dashboard prompts a callback request — placement contract handled
+  // offline for now until SaaS pricing test lands.
+  freeReviewsUsed: integer("free_reviews_used").notNull().default(0),
+  placementInquiryAt: timestamp("placement_inquiry_at", { withTimezone: true }),
+  placementInquiryNote: text("placement_inquiry_note"),
+  placementInquiryPhone: text("placement_inquiry_phone"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

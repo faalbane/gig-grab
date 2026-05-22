@@ -129,6 +129,27 @@ async function resolveEmployer(auth: AuthCtx) {
   return null;
 }
 
+const FREE_EMPLOYER_REVIEWS = 3;
+
+// Self-bootstrap: add the employer paywall columns if the prod DB is
+// on the pre-paywall schema. Idempotent.
+let employerSchemaEnsured = false;
+export async function ensureEmployerSchema(): Promise<void> {
+  if (employerSchemaEnsured) return;
+  try {
+    await db().execute(sql`
+      ALTER TABLE employers
+        ADD COLUMN IF NOT EXISTS free_reviews_used INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS placement_inquiry_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS placement_inquiry_note TEXT,
+        ADD COLUMN IF NOT EXISTS placement_inquiry_phone TEXT
+    `);
+    employerSchemaEnsured = true;
+  } catch (err) {
+    console.warn("[employer/migrate] schema ensure failed", err);
+  }
+}
+
 type JobStatus = "active" | "interviewing" | "paused" | "filled";
 const VALID_JOB_STATUSES: JobStatus[] = [
   "active",
@@ -303,6 +324,7 @@ export async function employerCandidateAction(
   jobId: string,
   candidateId: string,
 ): Promise<void> {
+  await ensureEmployerSchema();
   const auth = await decodeBearer(req);
   if (!auth) {
     res.status(401).json({ error: "unauthenticated" });
@@ -335,6 +357,38 @@ export async function employerCandidateAction(
     return;
   }
 
+  // Paywall gate. An "action" on a candidate = one review consumed.
+  // We only consume a review the FIRST time this employer acts on a
+  // given candidate (across any job) so re-shortlisting / changing
+  // mind doesn't burn the quota. Once free reviews are exhausted, we
+  // 402 + steer the client to the callback flow.
+  const [priorAction] = await db()
+    .select({ id: matches.id })
+    .from(matches)
+    .innerJoin(jobs, eq(jobs.id, matches.jobId))
+    .where(
+      and(
+        eq(jobs.employerId, emp.id),
+        eq(matches.candidateId, candidateId),
+        inArray(matches.status, ["shortlisted", "rejected", "screened"]),
+      ),
+    )
+    .limit(1);
+  const isNewReview = !priorAction;
+
+  if (isNewReview && !emp.placementInquiryAt) {
+    if ((emp.freeReviewsUsed ?? 0) >= FREE_EMPLOYER_REVIEWS) {
+      res.status(402).json({
+        error: "paywall",
+        reason: "free_reviews_exhausted",
+        freeReviewsUsed: emp.freeReviewsUsed ?? 0,
+        freeReviewsLimit: FREE_EMPLOYER_REVIEWS,
+        action: "request_callback",
+      });
+      return;
+    }
+  }
+
   await db()
     .insert(matches)
     .values({
@@ -349,11 +403,28 @@ export async function employerCandidateAction(
       set: { status: newStatus, updatedAt: new Date() },
     });
 
+  if (isNewReview) {
+    await db()
+      .update(employers)
+      .set({
+        freeReviewsUsed: sql`${employers.freeReviewsUsed} + 1`,
+      })
+      .where(eq(employers.id, emp.id));
+  }
+
   console.log(
     `[employer/action] job=${job.id.slice(0, 8)} candidate=${candidateId.slice(0, 8)} ` +
-      `action=${action} → ${newStatus}`,
+      `action=${action} → ${newStatus} (new_review=${isNewReview})`,
   );
-  res.json({ ok: true, status: newStatus });
+  res.json({
+    ok: true,
+    status: newStatus,
+    consumedReview: isNewReview,
+    freeReviewsRemaining: Math.max(
+      0,
+      FREE_EMPLOYER_REVIEWS - ((emp.freeReviewsUsed ?? 0) + (isNewReview ? 1 : 0)),
+    ),
+  });
 }
 
 /**
@@ -418,6 +489,7 @@ export async function publicJobGet(
 
 /** GET /api/account/employer/me — returns the signed-in employer + their jobs. */
 export async function employerMe(req: Request, res: Response): Promise<void> {
+  await ensureEmployerSchema();
   const auth = await decodeBearer(req);
   if (!auth) {
     res.status(401).json({ error: "unauthenticated" });
@@ -489,11 +561,20 @@ export async function employerMe(req: Request, res: Response): Promise<void> {
     }
   }
 
+  const reviewsUsed = emp.freeReviewsUsed ?? 0;
   res.json({
     employer: {
       id: emp.id,
       email: emp.email,
       company: emp.company,
+    },
+    paywall: {
+      freeReviewsUsed: reviewsUsed,
+      freeReviewsLimit: FREE_EMPLOYER_REVIEWS,
+      freeReviewsRemaining: Math.max(0, FREE_EMPLOYER_REVIEWS - reviewsUsed),
+      placementInquiryAt: emp.placementInquiryAt,
+      isPaywallActive:
+        reviewsUsed >= FREE_EMPLOYER_REVIEWS && !emp.placementInquiryAt,
     },
     jobs: jobRows.map((j) => {
       const s = stats.get(j.id) ?? {
@@ -505,6 +586,47 @@ export async function employerMe(req: Request, res: Response): Promise<void> {
       return { ...j, ...s };
     }),
   });
+}
+
+/**
+ * POST /api/account/employer/request-callback { note?, phone? }
+ *
+ * Records a placement-services callback request: stamps employer with
+ * inquiry timestamp + note. Logs loud so Frank can follow up
+ * out-of-band (email/Slack wiring is a follow-up). PostHog event
+ * employer_callback_requested fires client-side so we can funnel.
+ */
+export async function employerRequestCallback(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  await ensureEmployerSchema();
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const emp = await resolveEmployer(auth);
+  if (!emp) {
+    res.status(403).json({ error: "not an employer" });
+    return;
+  }
+  const note = String((req.body ?? {}).note ?? "").slice(0, 2000).trim();
+  const phone = String((req.body ?? {}).phone ?? "").slice(0, 32).trim();
+  await db()
+    .update(employers)
+    .set({
+      placementInquiryAt: new Date(),
+      placementInquiryNote: note || null,
+      placementInquiryPhone: phone || null,
+    })
+    .where(eq(employers.id, emp.id));
+  // Loud log so Frank can grep cloud logs for new callback requests
+  // until proper email/Slack notification lands.
+  console.log(
+    `[employer/callback-request] company="${emp.company}" email=${emp.email} phone=${phone || "(none)"} note="${note}"`,
+  );
+  res.json({ ok: true });
 }
 
 /**

@@ -27,6 +27,13 @@ type EmployerJob = {
 
 type EmployerMe = {
   employer: { id: string; email: string; company: string } | null;
+  paywall?: {
+    freeReviewsUsed: number;
+    freeReviewsLimit: number;
+    freeReviewsRemaining: number;
+    placementInquiryAt: string | null;
+    isPaywallActive: boolean;
+  };
   jobs: EmployerJob[];
 };
 
@@ -180,6 +187,8 @@ export default function EmployerDashboardPage() {
     }
   }
 
+  const [paywallOpen, setPaywallOpen] = useState(false);
+
   async function candidateAction(
     jobId: string,
     candidateId: string,
@@ -193,6 +202,12 @@ export default function EmployerDashboardPage() {
       track("employer_candidate_action", { jobId, candidateId, action });
       await Promise.all([loadApplicants(jobId), refreshJobs()]);
     } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === "paywall" || msg.includes("paywall")) {
+        track("employer_paywall_hit", { jobId, action });
+        setPaywallOpen(true);
+        return;
+      }
       setErr(e instanceof Error ? e.message : "Action failed.");
     }
   }
@@ -298,6 +313,13 @@ export default function EmployerDashboardPage() {
 
               <PostRoleCard hasJobs={me.jobs.length > 0} />
 
+              {me.paywall && (
+                <PaywallBanner
+                  paywall={me.paywall}
+                  onRequestCallback={() => setPaywallOpen(true)}
+                />
+              )}
+
               <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Stat
                   label="Active jobs"
@@ -386,7 +408,206 @@ export default function EmployerDashboardPage() {
           )}
         </div>
       </main>
+      <CallbackModal
+        open={paywallOpen}
+        onClose={() => setPaywallOpen(false)}
+        onSubmitted={() => {
+          setPaywallOpen(false);
+          refreshJobs();
+        }}
+      />
     </>
+  );
+}
+
+function PaywallBanner({
+  paywall,
+  onRequestCallback,
+}: {
+  paywall: NonNullable<EmployerMe["paywall"]>;
+  onRequestCallback: () => void;
+}) {
+  const requested = !!paywall.placementInquiryAt;
+  if (requested) {
+    return (
+      <div
+        className="mt-4 rounded-xl border p-4"
+        style={{
+          background: "var(--gg-green-tint-2)",
+          borderColor: "var(--gg-green-tint)",
+        }}
+      >
+        <p
+          className="m-0 text-sm font-bold"
+          style={{ color: "var(--gg-green-deep)" }}
+        >
+          Callback requested ✓
+        </p>
+        <p
+          className="m-0 mt-0.5 text-sm"
+          style={{ color: "var(--gg-ink-2)" }}
+        >
+          Our team will reach out to walk through the placement
+          process. Keep reviewing candidates in the meantime.
+        </p>
+      </div>
+    );
+  }
+  if (paywall.isPaywallActive) {
+    return (
+      <div
+        className="mt-4 rounded-xl border p-4 sm:p-5"
+        style={{ background: "#FEF3C7", borderColor: "#F59E0B" }}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p
+              className="m-0 text-sm font-bold"
+              style={{ color: "#92400E" }}
+            >
+              You&apos;ve used all {paywall.freeReviewsLimit} free
+              candidate reviews
+            </p>
+            <p
+              className="m-0 mt-0.5 text-sm"
+              style={{ color: "#78350F" }}
+            >
+              Placement fee starts from $1,000 per successful hire.
+              Request a callback and we&apos;ll walk through the
+              process + tighten the contract.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRequestCallback}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm font-bold text-white"
+            style={{ background: "var(--gg-ink)" }}
+          >
+            Request callback →
+          </button>
+        </div>
+      </div>
+    );
+  }
+  // Usage banner (still has free reviews left)
+  return (
+    <div
+      className="mt-4 rounded-xl border bg-white p-4 text-sm"
+      style={{ borderColor: "var(--gg-line)" }}
+    >
+      <p className="m-0" style={{ color: "var(--gg-ink-2)" }}>
+        <strong style={{ color: "var(--gg-green-dark)" }}>
+          {paywall.freeReviewsRemaining} of {paywall.freeReviewsLimit}{" "}
+          free candidate reviews
+        </strong>{" "}
+        remaining. Shortlist, request an interview, or reject — each
+        action counts as one review.
+      </p>
+    </div>
+  );
+}
+
+function CallbackModal({
+  open,
+  onClose,
+  onSubmitted,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!open) return null;
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await fetchWithAuth("/api/account/employer/request-callback", {
+        method: "POST",
+        body: JSON.stringify({ note, phone }),
+      });
+      track("employer_callback_requested", { hasNote: note.length > 0 });
+      onSubmitted();
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : "Couldn't send request.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+      >
+        <h2
+          className="m-0 text-lg font-extrabold tracking-tight"
+          style={{ color: "var(--gg-ink)" }}
+        >
+          Request a callback
+        </h2>
+        <p
+          className="mt-1 text-sm"
+          style={{ color: "var(--gg-muted)" }}
+        >
+          Tell us what you&apos;re hiring for. Our team will reach out
+          to walk through placement + contract. Placement fee starts
+          from $1,000 per successful hire.
+        </p>
+        <label className="mt-4 block text-xs font-medium" style={{ color: "var(--gg-ink-2)" }}>
+          Best phone number (optional)
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+1 555 555 5555"
+            className="mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm"
+            style={{ borderColor: "var(--gg-line-2)" }}
+          />
+        </label>
+        <label className="mt-3 block text-xs font-medium" style={{ color: "var(--gg-ink-2)" }}>
+          Anything specific to share?
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            placeholder="e.g. timeline, role types, locations…"
+            className="mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm"
+            style={{ borderColor: "var(--gg-line-2)" }}
+          />
+        </label>
+        {err && (
+          <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+            {err}
+          </p>
+        )}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:border-gray-400"
+          >
+            Not now
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-md px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+            style={{ background: "var(--gg-green-dark)" }}
+          >
+            {busy ? "Sending…" : "Send request"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
