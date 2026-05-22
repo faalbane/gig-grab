@@ -48,29 +48,58 @@ type StripeSubscription = {
 import { db, candidates, type CandidateBillingTier } from "@gig-grab/db";
 import { eq, sql } from "drizzle-orm";
 
+export type BillingInterval = "week" | "month";
+
 export const TIER_PLANS: Record<
   CandidateBillingTier,
-  { priceId: string; appsPerWeek: number; label: string; amountCents: number }
+  Record<
+    BillingInterval,
+    { priceId: string; applications: number; amountCents: number }
+  > & { label: string }
 > = {
   starter: {
-    priceId: "price_1TZqdCCX4iU4nm42dP6qoI0S",
-    appsPerWeek: 20,
     label: "Starter",
-    amountCents: 999,
+    week: {
+      priceId: "price_1TZqdCCX4iU4nm42dP6qoI0S",
+      applications: 20,
+      amountCents: 999,
+    },
+    month: {
+      priceId: "price_1TZquFCX4iU4nm42CTng9KAQ",
+      applications: 80,
+      amountCents: 1999,
+    },
   },
   professional: {
-    priceId: "price_1TZqdDCX4iU4nm42WJkaxVAK",
-    appsPerWeek: 50,
     label: "Professional",
-    amountCents: 1999,
+    week: {
+      priceId: "price_1TZqdDCX4iU4nm42WJkaxVAK",
+      applications: 50,
+      amountCents: 1999,
+    },
+    month: {
+      priceId: "price_1TZquFCX4iU4nm42jVuZDpHD",
+      applications: 150,
+      amountCents: 2999,
+    },
   },
   premium: {
-    priceId: "price_1TZqdECX4iU4nm42u4zh2hZP",
-    appsPerWeek: 100,
     label: "Premium",
-    amountCents: 2999,
+    week: {
+      priceId: "price_1TZqdECX4iU4nm42u4zh2hZP",
+      applications: 100,
+      amountCents: 2999,
+    },
+    month: {
+      priceId: "price_1TZquFCX4iU4nm429cZ7B8xj",
+      applications: 300,
+      amountCents: 4999,
+    },
   },
 };
+
+// Free tier: every new candidate gets 10 applications, no card needed.
+export const FREE_APPLICATIONS = 10;
 
 function publicWebOrigin(): string {
   return process.env.PUBLIC_WEB_URL ?? "https://giggrab.io";
@@ -166,11 +195,16 @@ export async function billingCheckout(
   const tier = String(
     (req.body ?? {}).tier ?? "",
   ).toLowerCase() as CandidateBillingTier;
+  const interval = (String((req.body ?? {}).interval ?? "week").toLowerCase() ===
+  "month"
+    ? "month"
+    : "week") as BillingInterval;
   const plan = TIER_PLANS[tier];
   if (!plan) {
     res.status(400).json({ error: "bad tier" });
     return;
   }
+  const priceConfig = plan[interval];
 
   const [c] = await db()
     .select()
@@ -201,12 +235,12 @@ export async function billingCheckout(
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
-    line_items: [{ price: plan.priceId, quantity: 1 }],
+    line_items: [{ price: priceConfig.priceId, quantity: 1 }],
     success_url: `${origin}/dashboard?billing=success&tier=${tier}`,
     cancel_url: `${origin}/pricing?billing=canceled`,
     allow_promotion_codes: true,
-    metadata: { candidateId: c.id, tier },
-    subscription_data: { metadata: { candidateId: c.id, tier } },
+    metadata: { candidateId: c.id, tier, interval },
+    subscription_data: { metadata: { candidateId: c.id, tier, interval } },
   });
 
   res.json({ url: session.url, id: session.id });
@@ -282,10 +316,11 @@ export async function stripeWebhook(
         const s = event.data.object as StripeCheckoutSession;
         const candidateId = (s.metadata?.candidateId ?? "") as string;
         const tier = (s.metadata?.tier ?? "") as CandidateBillingTier;
+        const interval = ((s.metadata?.interval ?? "week") as BillingInterval);
         if (!candidateId || !TIER_PLANS[tier]) break;
-        const plan = TIER_PLANS[tier];
+        const priceConfig =
+          TIER_PLANS[tier][interval] ?? TIER_PLANS[tier].week;
         const subId = (s.subscription as string) ?? null;
-        // Pull subscription for period_end.
         let periodEnd: Date | null = null;
         if (subId) {
           const sub = (await stripeClient().subscriptions.retrieve(
@@ -301,12 +336,12 @@ export async function stripeWebhook(
             billingTier: tier,
             billingStatus: "active",
             billingPeriodEnd: periodEnd,
-            applicationsRemaining: plan.appsPerWeek,
+            applicationsRemaining: priceConfig.applications,
             applicationsResetAt: new Date(),
           })
           .where(eq(candidates.id, candidateId));
         console.log(
-          `[stripe/webhook] checkout completed candidate=${candidateId} tier=${tier} apps=${plan.appsPerWeek}`,
+          `[stripe/webhook] checkout completed candidate=${candidateId} tier=${tier} interval=${interval} apps=${priceConfig.applications}`,
         );
         break;
       }
@@ -320,23 +355,30 @@ export async function stripeWebhook(
           .where(eq(candidates.stripeSubscriptionId, subId))
           .limit(1);
         if (!c?.billingTier) break;
-        const plan = TIER_PLANS[c.billingTier];
-        if (!plan) break;
+        const tierConfig = TIER_PLANS[c.billingTier];
+        if (!tierConfig) break;
         const sub = (await stripeClient().subscriptions.retrieve(
           subId,
         )) as unknown as StripeSubscription;
         const periodEnd = new Date((sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? 0) * 1000);
+        // Pick interval based on the subscription's recurring price.
+        // Lookup the first item's price ID → match to TIER_PLANS.
+        const items = (sub as unknown as { items?: { data: Array<{ price?: { id?: string; recurring?: { interval?: string } } }> } }).items;
+        const intervalFromSub = items?.data?.[0]?.price?.recurring?.interval;
+        const interval: BillingInterval =
+          intervalFromSub === "month" ? "month" : "week";
+        const priceConfig = tierConfig[interval] ?? tierConfig.week;
         await db()
           .update(candidates)
           .set({
             billingStatus: "active",
             billingPeriodEnd: periodEnd,
-            applicationsRemaining: plan.appsPerWeek,
+            applicationsRemaining: priceConfig.applications,
             applicationsResetAt: new Date(),
           })
           .where(eq(candidates.id, c.id));
         console.log(
-          `[stripe/webhook] invoice.paid candidate=${c.id} reset apps=${plan.appsPerWeek}`,
+          `[stripe/webhook] invoice.paid candidate=${c.id} interval=${interval} reset apps=${priceConfig.applications}`,
         );
         break;
       }

@@ -219,6 +219,35 @@ export async function adminEmbedBackfill(
  * Auth: INGEST_SECRET header. Idempotent: running again resets the
  * password and re-grants.
  */
+/**
+ * POST /api/admin/billing/seed-free-tier
+ * One-shot: every candidate currently sitting on
+ * applications_remaining=0 AND billing_tier IS NULL gets seeded with
+ * the free-tier 10 applications. Safe to re-run; subscribed users are
+ * untouched.
+ */
+export async function adminSeedFreeTier(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const { ensureBillingSchema } = await import("./billing");
+  await ensureBillingSchema();
+  const r = await db().execute(sql`
+    UPDATE candidates
+       SET applications_remaining = 10
+     WHERE applications_remaining = 0
+       AND billing_tier IS NULL
+  `);
+  const updated = (r as unknown as { rowCount?: number }).rowCount ?? 0;
+  res.json({ ok: true, updated });
+}
+
 export async function adminCreateReadonlyUser(
   req: Request,
   res: Response,

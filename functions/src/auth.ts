@@ -165,6 +165,7 @@ export async function authLink(req: Request, res: Response): Promise<void> {
         phone: phone ?? `pending-${id.slice(0, 8)}`,
         email: emailVerified && email ? email : undefined,
         language: "en",
+        applicationsRemaining: 10, // free tier
       })
       .returning();
     console.log(`[auth/link] fallback created → ${row.id} phone=${row.phone}`);

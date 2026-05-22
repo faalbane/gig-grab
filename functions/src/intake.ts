@@ -83,7 +83,7 @@ async function checkPhoneRateLimit(phone: string): Promise<boolean> {
 async function upsertCandidate(phone: string, language: string) {
   const [row] = await db()
     .insert(candidates)
-    .values({ id: randomUUID(), phone, language })
+    .values({ id: randomUUID(), phone, language, applicationsRemaining: 10 })
     .onConflictDoUpdate({
       target: candidates.phone,
       set: { language, lastCallAt: new Date() },

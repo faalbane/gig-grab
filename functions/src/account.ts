@@ -114,6 +114,7 @@ async function ensureCandidateForUid(auth: AuthCtx) {
       phone: auth.phone ?? `pending-${id.slice(0, 8)}`,
       email: auth.emailVerified && auth.email ? auth.email : undefined,
       language: "en",
+      applicationsRemaining: 10, // free tier
     })
     .returning();
   console.log(

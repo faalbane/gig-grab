@@ -39,6 +39,7 @@ import {
   adminPauseJobSource,
   adminFixCurrency,
   adminCreateReadonlyUser,
+  adminSeedFreeTier,
 } from "./admin";
 import { accountJobScore } from "./match-score";
 import {
@@ -194,6 +195,10 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/admin/db/create-readonly-user") {
         await adminCreateReadonlyUser(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/admin/billing/seed-free-tier") {
+        await adminSeedFreeTier(req, res);
         return;
       }
       if (method === "GET" && path === "/billing/me") {

@@ -280,9 +280,17 @@ export async function twilioInbound(
   // extractEmployerJob from the transcript.
   // Default new candidates to English; if a returning caller has a
   // language preference on file, the onConflictDoUpdate keeps it.
+  // Seed 10 free applications on first-ever creation (FREE_APPLICATIONS).
+  // For returning numbers, do NOT reset the quota — they may already
+  // have an active subscription or a partially-used free balance.
   const [candidate] = await db()
     .insert(candidates)
-    .values({ id: randomUUID(), phone: from, language: "en" })
+    .values({
+      id: randomUUID(),
+      phone: from,
+      language: "en",
+      applicationsRemaining: 10,
+    })
     .onConflictDoUpdate({
       target: candidates.phone,
       set: { lastCallAt: new Date() },
