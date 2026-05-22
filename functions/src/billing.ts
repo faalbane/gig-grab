@@ -169,10 +169,41 @@ export async function billingMe(req: Request, res: Response): Promise<void> {
     res.json({ tier: null, status: null, applicationsRemaining: 0 });
     return;
   }
+  // Period total so the client can show "X of N used" without
+  // hardcoding tier→quota mapping. Free tier = FREE_APPLICATIONS;
+  // paid tier reads from TIER_PLANS using the current sub interval.
+  let periodTotal = FREE_APPLICATIONS;
+  let interval: BillingInterval = "week";
+  if (c.billingTier && c.stripeSubscriptionId) {
+    // Best-effort: peek at the subscription for its interval.
+    try {
+      const sub = (await stripeClient().subscriptions.retrieve(
+        c.stripeSubscriptionId,
+      )) as unknown as {
+        items?: { data: Array<{ price?: { recurring?: { interval?: string } } }> };
+      };
+      if (sub.items?.data?.[0]?.price?.recurring?.interval === "month") {
+        interval = "month";
+      }
+    } catch {
+      // ignore; default to week
+    }
+    periodTotal =
+      TIER_PLANS[c.billingTier]?.[interval]?.applications ??
+      TIER_PLANS[c.billingTier]?.week?.applications ??
+      FREE_APPLICATIONS;
+  }
+  const applicationsUsed = Math.max(
+    0,
+    periodTotal - (c.applicationsRemaining ?? 0),
+  );
   res.json({
     tier: c.billingTier,
     status: c.billingStatus,
     applicationsRemaining: c.applicationsRemaining,
+    applicationsUsed,
+    periodTotal,
+    interval,
     periodEnd: c.billingPeriodEnd,
     hasSubscription: !!c.stripeSubscriptionId,
   });

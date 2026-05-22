@@ -1068,23 +1068,11 @@ function JobCard({
               {loadingScore ? "Scoring…" : "Match score"}
             </button>
           )}
-          {(() => {
-            const safeUrl = safeHttpUrl(job.applyUrl);
-            return safeUrl ? (
-              <a
-                href={safeUrl}
-                target="_blank"
-                rel="noreferrer nofollow"
-                className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 text-xs font-semibold sm:flex-initial"
-                style={{
-                  borderColor: "var(--gg-line-2)",
-                  color: "var(--gg-ink)",
-                }}
-              >
-                Listing ↗
-              </a>
-            ) : null;
-          })()}
+          {/* External "Listing ↗" button intentionally removed —
+              candidates read + apply on-site via View details. The
+              original source URL still lives in the post-apply
+              confirmation strip so they can submit directly with the
+              employer if they want. */}
         </div>
       </div>
       {matchScore && (

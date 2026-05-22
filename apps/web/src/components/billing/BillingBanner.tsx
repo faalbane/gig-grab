@@ -19,6 +19,9 @@ type BillingMe = {
   tier: "starter" | "professional" | "premium" | null;
   status: string | null;
   applicationsRemaining: number;
+  applicationsUsed: number;
+  periodTotal: number;
+  interval?: "week" | "month";
   periodEnd: string | null;
   hasSubscription: boolean;
 };
@@ -109,7 +112,7 @@ export function BillingBanner({
               className="m-0 mt-0.5 text-xs"
               style={{ color: "var(--gg-muted)" }}
             >
-              {me.applicationsRemaining} applications left
+              {me.applicationsUsed} of {me.periodTotal} applications used
               {me.periodEnd
                 ? ` · renews ${new Date(me.periodEnd).toLocaleDateString()}`
                 : ""}
@@ -152,7 +155,7 @@ export function BillingBanner({
           >
             {empty
               ? "Out of free applications. Pick a plan to keep applying."
-              : `${me.applicationsRemaining} free applications remaining.`}
+              : `${me.applicationsUsed} of ${me.periodTotal} free applications used.`}
           </p>
         </div>
         <Link
