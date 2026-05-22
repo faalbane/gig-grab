@@ -226,6 +226,112 @@ export async function adminEmbedBackfill(
  * the free-tier 10 applications. Safe to re-run; subscribed users are
  * untouched.
  */
+/**
+ * GET /api/admin/stats — PII-free head-counts across the app.
+ * Auth: INGEST_SECRET. Safe to share in any log / chat / dashboard.
+ */
+/**
+ * GET /api/admin/sessions/recent?limit=30&kind=candidate_intake
+ * Lists recent sessions for the team transcript-review UI. PII
+ * minimised — phone is masked to last 4 digits.
+ */
+export async function adminSessionsRecent(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const limit = Math.min(
+    100,
+    Math.max(1, Number(req.query.limit ?? 30) || 30),
+  );
+  const kindFilter = String(req.query.kind ?? "").trim();
+  const r = await db().execute(sql`
+    SELECT
+      s.id,
+      s.kind,
+      s.status,
+      s.started_at,
+      s.ended_at,
+      EXTRACT(EPOCH FROM (s.ended_at - s.started_at))::int AS duration_seconds,
+      s.candidate_id,
+      c.phone AS phone,
+      pc.name AS name,
+      pc.title AS title,
+      pc.years_experience AS years,
+      pc.location AS location,
+      (SELECT COUNT(*)::int FROM transcript_turns t WHERE t.session_id = s.id) AS turn_count
+    FROM sessions s
+    LEFT JOIN candidates c ON c.id = s.candidate_id
+    LEFT JOIN profile_cards pc ON pc.candidate_id = s.candidate_id
+    ${kindFilter ? sql`WHERE s.kind = ${kindFilter}` : sql``}
+    ORDER BY s.started_at DESC
+    LIMIT ${limit}
+  `);
+  const rows = r as unknown as Array<Record<string, unknown>>;
+  res.json({
+    ok: true,
+    sessions: rows.map((row) => {
+      const phone = String(row.phone ?? "");
+      return {
+        id: row.id,
+        kind: row.kind,
+        status: row.status,
+        startedAt: row.started_at,
+        endedAt: row.ended_at,
+        durationSeconds: row.duration_seconds,
+        candidateId: row.candidate_id,
+        // Mask phone to last 4 for safer team viewing.
+        phoneMasked: phone
+          ? `${phone.startsWith("+") ? phone.slice(0, 3) : "***"}…${phone.slice(-4)}`
+          : null,
+        name: row.name ?? null,
+        title: row.title ?? null,
+        years: row.years ?? null,
+        location: row.location ?? null,
+        turnCount: row.turn_count,
+      };
+    }),
+  });
+}
+
+export async function adminStats(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const r = await db().execute(sql`
+    SELECT
+      (SELECT COUNT(*)::int FROM candidates) AS total_candidates,
+      (SELECT COUNT(*)::int FROM candidates WHERE firebase_uid IS NOT NULL) AS candidates_signed_in,
+      (SELECT COUNT(*)::int FROM profile_cards) AS candidates_with_profile,
+      (SELECT COUNT(*)::int FROM candidates WHERE billing_tier IS NOT NULL) AS candidates_subscribed,
+      (SELECT COUNT(*)::int FROM employers) AS total_employers,
+      (SELECT COUNT(*)::int FROM employers WHERE firebase_uid IS NOT NULL) AS employers_signed_in,
+      (SELECT COUNT(*)::int FROM employers WHERE placement_inquiry_at IS NOT NULL) AS employer_callback_requests,
+      (SELECT COUNT(*)::int FROM jobs) AS total_jobs,
+      (SELECT COUNT(*)::int FROM jobs WHERE status = 'active') AS active_jobs,
+      (SELECT COUNT(*)::int FROM jobs WHERE status = 'paused') AS paused_jobs,
+      (SELECT COUNT(*)::int FROM jobs WHERE structured_brief->>'country' = 'us' AND location ILIKE '%Houston%') AS houston_jobs,
+      (SELECT COUNT(*)::int FROM sessions WHERE status = 'completed') AS completed_calls,
+      (SELECT COUNT(*)::int FROM transcript_turns) AS total_turns,
+      (SELECT COUNT(*)::int FROM matches WHERE status = 'applied') AS total_applications,
+      (SELECT COUNT(*)::int FROM matches WHERE status = 'shortlisted') AS total_shortlists,
+      (SELECT COUNT(*)::int FROM matches WHERE status = 'screened') AS total_interview_requests
+  `);
+  const rows = (r as unknown as Array<Record<string, unknown>>);
+  res.json({ ok: true, stats: rows[0] ?? {} });
+}
+
 export async function adminSeedFreeTier(
   req: Request,
   res: Response,

@@ -40,6 +40,8 @@ import {
   adminFixCurrency,
   adminCreateReadonlyUser,
   adminSeedFreeTier,
+  adminStats,
+  adminSessionsRecent,
 } from "./admin";
 import { accountJobScore } from "./match-score";
 import {
@@ -200,6 +202,14 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/admin/billing/seed-free-tier") {
         await adminSeedFreeTier(req, res);
+        return;
+      }
+      if (method === "GET" && path === "/admin/stats") {
+        await adminStats(req, res);
+        return;
+      }
+      if (method === "GET" && path === "/admin/sessions/recent") {
+        await adminSessionsRecent(req, res);
         return;
       }
       if (method === "GET" && path === "/billing/me") {
