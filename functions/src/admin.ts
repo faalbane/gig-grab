@@ -240,30 +240,45 @@ export async function adminCreateReadonlyUser(
     return;
   }
 
-  // Identifier-quote the username; literal-escape the password.
-  const userId = sql.raw(`"${usernameRaw.replace(/"/g, '""')}"`);
-  const pwLit = sql.raw(`'${password.replace(/'/g, "''")}'`);
+  // Bind both username + password as raw because we've already
+  // validated their shape above and need them inside DO/EXECUTE bodies
+  // where prepared-statement parameters aren't supported.
+  const safeUser = usernameRaw.replace(/"/g, '""');
+  const safePw = password.replace(/'/g, "''");
 
-  // CREATE OR ALTER + grants. Bracket each statement so a partial
-  // failure surfaces.
   try {
-    await db().execute(sql`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = ${usernameRaw}) THEN
-          EXECUTE 'CREATE ROLE ' || quote_ident(${usernameRaw}) || ' LOGIN PASSWORD ' || quote_literal(${password});
-        ELSE
-          EXECUTE 'ALTER ROLE ' || quote_ident(${usernameRaw}) || ' LOGIN PASSWORD ' || quote_literal(${password});
-        END IF;
-      END$$;
-    `);
-    void userId;
-    void pwLit;
-    await db().execute(sql.raw(`GRANT CONNECT ON DATABASE "postgres" TO "${usernameRaw}"`));
-    await db().execute(sql.raw(`GRANT USAGE ON SCHEMA public TO "${usernameRaw}"`));
-    await db().execute(sql.raw(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${usernameRaw}"`));
-    await db().execute(sql.raw(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO "${usernameRaw}"`));
-    res.json({ ok: true, username: usernameRaw });
+    // Check existence first via parameterised SELECT, then issue the
+    // create/alter as a raw statement.
+    const exists = await db().execute(
+      sql`SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = ${usernameRaw}`,
+    );
+    const rows = (exists as unknown as Array<unknown>).length > 0;
+    if (!rows) {
+      await db().execute(
+        sql.raw(`CREATE ROLE "${safeUser}" LOGIN PASSWORD '${safePw}'`),
+      );
+    } else {
+      await db().execute(
+        sql.raw(`ALTER ROLE "${safeUser}" LOGIN PASSWORD '${safePw}'`),
+      );
+    }
+    await db().execute(
+      sql.raw(`GRANT CONNECT ON DATABASE "postgres" TO "${safeUser}"`),
+    );
+    await db().execute(
+      sql.raw(`GRANT USAGE ON SCHEMA public TO "${safeUser}"`),
+    );
+    await db().execute(
+      sql.raw(
+        `GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${safeUser}"`,
+      ),
+    );
+    await db().execute(
+      sql.raw(
+        `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO "${safeUser}"`,
+      ),
+    );
+    res.json({ ok: true, username: usernameRaw, existed: rows });
   } catch (err) {
     console.error("[admin/create-readonly-user] failed", err);
     res.status(500).json({ error: "create_failed", message: String(err) });

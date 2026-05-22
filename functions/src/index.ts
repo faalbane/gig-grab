@@ -42,6 +42,12 @@ import {
 } from "./admin";
 import { accountJobScore } from "./match-score";
 import {
+  billingMe,
+  billingCheckout,
+  billingPortal,
+  stripeWebhook,
+} from "./billing";
+import {
   employerMe,
   employerJobMatches,
   employerJobUpdate,
@@ -64,6 +70,8 @@ const SECRETS = [
   "ADZUNA_APP_ID",
   "ADZUNA_APP_KEY",
   "INGEST_SECRET",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
 ];
 
 /**
@@ -186,6 +194,22 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/admin/db/create-readonly-user") {
         await adminCreateReadonlyUser(req, res);
+        return;
+      }
+      if (method === "GET" && path === "/billing/me") {
+        await billingMe(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/billing/checkout") {
+        await billingCheckout(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/billing/portal") {
+        await billingPortal(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/stripe/webhook") {
+        await stripeWebhook(req, res);
         return;
       }
       const profileMatch = path.match(

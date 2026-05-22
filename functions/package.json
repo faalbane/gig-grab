@@ -20,7 +20,8 @@
   "dependencies": {
     "firebase-admin": "^12.7.0",
     "firebase-functions": "^6.1.0",
-    "pdfkit": "^0.18.0"
+    "pdfkit": "^0.18.0",
+    "stripe": "^22.1.1"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.30.0",

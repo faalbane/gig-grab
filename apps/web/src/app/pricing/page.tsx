@@ -1,241 +1,304 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Header } from "@/components/marketing/Header";
 import { Footer } from "@/components/marketing/Footer";
-import {
-  IconPhone,
-  IconCheck,
-  IconBolt,
-} from "@/components/marketing/hotline/icons";
+import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
+import { track } from "@/components/PostHogProvider";
 
-export const metadata = {
-  title: "Pricing · GigGrab",
-  description:
-    "GigGrab is in pilot — pricing is set per employer based on volume and role mix. Contact us and we'll quote you in a 15-minute call.",
+type Tier = "starter" | "professional" | "premium";
+
+type Plan = {
+  tier: Tier;
+  label: string;
+  blurb: string;
+  priceText: string;
+  applications: number;
+  description: string;
+  featured?: boolean;
 };
 
-const HOTLINE = process.env.NEXT_PUBLIC_HOTLINE ?? "+1 551 553 4910";
+const PLANS: Plan[] = [
+  {
+    tier: "starter",
+    label: "Starter",
+    blurb: "For light job seekers testing the market.",
+    priceText: "$9.99",
+    applications: 20,
+    description:
+      "Perfect if you're applying occasionally or exploring new roles.",
+  },
+  {
+    tier: "professional",
+    label: "Professional",
+    blurb: "For active job seekers ready to move fast.",
+    priceText: "$19.99",
+    applications: 50,
+    description:
+      "Ideal if you're applying weekly and want to stay top of mind with every opportunity.",
+    featured: true,
+  },
+  {
+    tier: "premium",
+    label: "Premium",
+    blurb: "For go-getters ready to land their next role.",
+    priceText: "$29.99",
+    applications: 100,
+    description:
+      "Go all in. Apply to more roles, faster — and let us handle the busywork.",
+  },
+];
+
+type BillingMe = {
+  tier: Tier | null;
+  status: string | null;
+  applicationsRemaining: number;
+  hasSubscription: boolean;
+};
 
 export default function PricingPage() {
   return (
     <>
       <Header />
-      <main
-        className="flex-1"
-        style={{
-          background:
-            "radial-gradient(ellipse at 50% 0%, var(--gg-green-tint-2) 0%, transparent 55%), var(--gg-bg)",
-          position: "relative",
-        }}
+      <Suspense
+        fallback={
+          <div className="px-6 py-20 text-center text-gray-400">Loading…</div>
+        }
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              "repeating-linear-gradient(135deg, transparent 0 60px, rgba(14,159,74,0.025) 60px 61px)",
-          }}
-        />
-
-        <div className="relative mx-auto max-w-4xl px-6 py-14 sm:py-20">
-          <header className="text-center">
-            <div
-              className="mb-5 inline-flex items-center gap-2 rounded-full border bg-white px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider"
-              style={{
-                borderColor: "var(--gg-line)",
-                color: "var(--gg-green-dark)",
-                letterSpacing: "0.06em",
-              }}
-            >
-              <IconBolt width={13} height={13} />
-              <span className="mono">Pilot pricing</span>
-            </div>
-            <h1
-              className="m-0 font-extrabold leading-[1.05] tracking-tight"
-              style={{
-                fontSize: "clamp(40px, 5vw, 60px)",
-                color: "var(--gg-ink)",
-              }}
-            >
-              Let&apos;s talk.{" "}
-              <span style={{ color: "var(--gg-green)" }}>
-                We&apos;ll quote you.
-              </span>
-            </h1>
-            <p
-              className="mx-auto mt-5 max-w-xl text-[17px] leading-relaxed"
-              style={{ color: "var(--gg-ink-2)" }}
-            >
-              We&apos;re in a closed pilot with a small group of employers and
-              agencies. Pricing depends on the roles you fill, the volume,
-              and whether you use our vetted pool or your own ATS. A
-              15-minute call sorts it all out — no commitment.
-            </p>
-          </header>
-
-          {/* Primary CTA card */}
-          <section
-            className="mx-auto mt-12 max-w-2xl rounded-3xl border bg-white p-8 sm:p-10"
-            style={{
-              borderColor: "var(--gg-line)",
-              boxShadow:
-                "0 30px 80px -50px rgba(14,40,22,0.25), 0 2px 6px rgba(14,40,22,0.04)",
-            }}
-          >
-            <div className="flex items-start gap-4">
-              <div
-                className="grid h-14 w-14 flex-shrink-0 place-items-center rounded-full"
-                style={{
-                  background: "var(--gg-green-tint)",
-                  color: "var(--gg-green-dark)",
-                }}
-              >
-                <IconPhone width={24} height={24} />
-              </div>
-              <div className="flex-1">
-                <h2
-                  className="m-0 text-2xl font-extrabold tracking-tight"
-                  style={{ color: "var(--gg-ink)" }}
-                >
-                  Contact us and we&apos;ll get you set up.
-                </h2>
-                <p
-                  className="mt-2 text-[15px] leading-relaxed"
-                  style={{ color: "var(--gg-muted)" }}
-                >
-                  Tell us what you&apos;re hiring for. We&apos;ll book a quick
-                  call, take the brief, and send you live, ranked candidates
-                  the same day.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                href="/hiring"
-                className="inline-flex h-12 items-center gap-2 rounded-xl px-6 text-sm font-bold text-white"
-                style={{ background: "var(--gg-green)" }}
-              >
-                <IconPhone width={16} height={16} />
-                Start with a brief call
-              </Link>
-              <a
-                href={`tel:${HOTLINE.replace(/\s/g, "")}`}
-                className="inline-flex h-12 items-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
-                style={{
-                  borderColor: "var(--gg-line-2)",
-                  color: "var(--gg-ink)",
-                }}
-              >
-                Or call {HOTLINE}
-              </a>
-              <a
-                href="mailto:hello@giggrab.io?subject=Pricing%20enquiry"
-                className="inline-flex h-12 items-center gap-2 rounded-xl border-[1.5px] bg-white px-5 text-sm font-semibold"
-                style={{
-                  borderColor: "var(--gg-line-2)",
-                  color: "var(--gg-ink)",
-                }}
-              >
-                Email hello@giggrab.io
-              </a>
-            </div>
-          </section>
-
-          {/* What's included in the pilot */}
-          <section className="mt-14">
-            <div className="text-center">
-              <div
-                className="mono text-xs font-semibold uppercase"
-                style={{
-                  color: "var(--gg-green-dark)",
-                  letterSpacing: "0.14em",
-                }}
-              >
-                What&apos;s included
-              </div>
-              <h2
-                className="mt-1.5 text-3xl font-extrabold tracking-tight"
-                style={{ color: "var(--gg-ink)" }}
-              >
-                Pilot perks
-              </h2>
-            </div>
-            <div className="mt-7 grid gap-4 sm:grid-cols-3">
-              <PerkCard
-                title="Unlimited intake calls"
-                body="Brief by voice as many roles as you need. We turn each call into a structured JD you can edit."
-              />
-              <PerkCard
-                title="Vetted candidate pool"
-                body="Surface live workers in your trade, ranked by skills + location. Or plug in your own ATS."
-              />
-              <PerkCard
-                title="No platform fee"
-                body="Pilot users don't pay for the platform. We agree a per-hire success fee up front, in writing."
-              />
-            </div>
-          </section>
-
-          {/* For workers */}
-          <section className="mt-14 text-center">
-            <p
-              className="mx-auto inline-flex max-w-xl items-center gap-2 rounded-full border bg-white px-4 py-2 text-sm"
-              style={{
-                borderColor: "var(--gg-line)",
-                color: "var(--gg-ink-2)",
-              }}
-            >
-              <IconCheck
-                width={14}
-                height={14}
-                style={{ color: "var(--gg-green-dark)" }}
-              />
-              <span>
-                Workers — GigGrab is always free for you.{" "}
-                <Link
-                  href="/"
-                  className="font-bold"
-                  style={{ color: "var(--gg-green-dark)" }}
-                >
-                  Call the hotline →
-                </Link>
-              </span>
-            </p>
-          </section>
-        </div>
-      </main>
+        <PricingInner />
+      </Suspense>
       <Footer />
     </>
   );
 }
 
-function PerkCard({ title, body }: { title: string; body: string }) {
+function PricingInner() {
+  const params = useSearchParams();
+  const user = useAuthUser();
+  const [me, setMe] = useState<BillingMe | null>(null);
+  const [busyTier, setBusyTier] = useState<Tier | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const canceledBanner = params.get("billing") === "canceled";
+
+  useEffect(() => {
+    if (user === null || user === false) {
+      setMe(null);
+      return;
+    }
+    fetchWithAuth<BillingMe>("/api/billing/me")
+      .then(setMe)
+      .catch(() => setMe(null));
+  }, [user]);
+
+  async function subscribe(tier: Tier) {
+    if (user === false) {
+      window.location.href = `/auth?returnTo=/pricing`;
+      return;
+    }
+    if (user === null) return;
+    setBusyTier(tier);
+    setErr(null);
+    try {
+      const { url } = await fetchWithAuth<{ url: string }>(
+        "/api/billing/checkout",
+        { method: "POST", body: JSON.stringify({ tier }) },
+      );
+      track("billing_checkout_started", { tier });
+      window.location.href = url;
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't start checkout.");
+      setBusyTier(null);
+    }
+  }
+
+  async function openPortal() {
+    setErr(null);
+    try {
+      const { url } = await fetchWithAuth<{ url: string }>(
+        "/api/billing/portal",
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      track("billing_portal_opened", {});
+      window.location.href = url;
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't open portal.");
+    }
+  }
+
   return (
-    <div
-      className="rounded-2xl border bg-white p-6"
-      style={{ borderColor: "var(--gg-line)" }}
-    >
-      <div
-        className="mb-4 grid h-10 w-10 place-items-center rounded-xl"
-        style={{
-          background: "var(--gg-green-tint)",
-          color: "var(--gg-green-dark)",
-        }}
-      >
-        <IconCheck width={18} height={18} />
+    <main className="mx-auto max-w-5xl px-6 py-12 sm:py-16">
+      <header className="mb-10 text-center">
+        <p
+          className="mono text-xs font-semibold uppercase"
+          style={{
+            color: "var(--gg-green-dark)",
+            letterSpacing: "0.14em",
+          }}
+        >
+          Pricing
+        </p>
+        <h1
+          className="m-0 mt-2 text-3xl font-extrabold tracking-tight sm:text-[40px]"
+          style={{ color: "var(--gg-ink)" }}
+        >
+          Pick a weekly plan.
+        </h1>
+        <p
+          className="mx-auto mt-3 max-w-xl text-[15px] leading-relaxed"
+          style={{ color: "var(--gg-muted)" }}
+        >
+          Each plan gives you a fixed number of applications per week.
+          Cancel anytime from your dashboard.
+        </p>
+      </header>
+
+      {canceledBanner && (
+        <div
+          className="mx-auto mb-6 max-w-2xl rounded-lg px-4 py-2 text-center text-sm"
+          style={{ background: "#FEF3C7", color: "#92400E" }}
+        >
+          Checkout was canceled. No charge applied.
+        </div>
+      )}
+
+      {me?.hasSubscription && (
+        <div
+          className="mx-auto mb-6 flex max-w-2xl flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4"
+          style={{ borderColor: "var(--gg-line)" }}
+        >
+          <div className="text-sm">
+            <p className="m-0 font-semibold" style={{ color: "var(--gg-ink)" }}>
+              You&apos;re on <span className="capitalize">{me.tier}</span> —{" "}
+              {me.status}
+            </p>
+            <p className="m-0 text-xs" style={{ color: "var(--gg-muted)" }}>
+              {me.applicationsRemaining} applications left this week
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={openPortal}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold hover:border-gray-400"
+          >
+            Manage subscription
+          </button>
+        </div>
+      )}
+
+      {err && (
+        <p className="mx-auto mb-4 max-w-2xl rounded-md bg-red-50 px-3 py-2 text-center text-sm text-red-700">
+          {err}
+        </p>
+      )}
+
+      <div className="grid gap-5 sm:grid-cols-3">
+        {PLANS.map((p) => {
+          const isCurrent = me?.tier === p.tier && !!me?.hasSubscription;
+          const featured = p.featured && !isCurrent;
+          return (
+            <article
+              key={p.tier}
+              className="relative rounded-2xl border bg-white p-6"
+              style={{
+                borderColor: featured ? "var(--gg-green-dark)" : "var(--gg-line)",
+                boxShadow: featured
+                  ? "0 20px 60px -25px rgba(14,40,22,0.25)"
+                  : undefined,
+              }}
+            >
+              {featured && (
+                <span
+                  className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-0.5 text-[11px] font-bold uppercase text-white"
+                  style={{
+                    background: "var(--gg-green-dark)",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Most Popular
+                </span>
+              )}
+              <h3
+                className="m-0 text-lg font-bold tracking-tight"
+                style={{ color: "var(--gg-ink)" }}
+              >
+                {p.label}
+              </h3>
+              <p className="mt-1 text-sm" style={{ color: "var(--gg-muted)" }}>
+                {p.blurb}
+              </p>
+              <p
+                className="mt-5 text-3xl font-extrabold tracking-tight"
+                style={{ color: "var(--gg-ink)" }}
+              >
+                {p.priceText}
+                <span
+                  className="ml-1 text-sm font-medium"
+                  style={{ color: "var(--gg-muted)" }}
+                >
+                  /week
+                </span>
+              </p>
+              <p
+                className="mt-2 text-sm font-semibold"
+                style={{ color: "var(--gg-green-dark)" }}
+              >
+                {p.applications} applications / week
+              </p>
+              <p
+                className="mt-3 rounded-md p-3 text-xs"
+                style={{
+                  background: "var(--gg-bg, #F8FAF9)",
+                  color: "var(--gg-ink-2)",
+                }}
+              >
+                {p.description}
+              </p>
+              <button
+                type="button"
+                onClick={() => subscribe(p.tier)}
+                disabled={busyTier === p.tier || isCurrent}
+                className={`mt-5 w-full rounded-lg px-4 py-2.5 text-sm font-bold ${
+                  isCurrent ? "bg-gray-100 text-gray-500" : "text-white"
+                } disabled:opacity-60`}
+                style={
+                  isCurrent
+                    ? undefined
+                    : {
+                        background: featured
+                          ? "var(--gg-green-dark)"
+                          : "var(--gg-ink)",
+                      }
+                }
+              >
+                {isCurrent
+                  ? "Current plan"
+                  : busyTier === p.tier
+                    ? "Loading…"
+                    : "Get Started"}
+              </button>
+            </article>
+          );
+        })}
       </div>
-      <h3
-        className="m-0 text-[17px] font-bold tracking-tight"
-        style={{ color: "var(--gg-ink)" }}
-      >
-        {title}
-      </h3>
+
       <p
-        className="mt-1.5 text-[14.5px] leading-relaxed"
+        className="mt-10 text-center text-xs"
         style={{ color: "var(--gg-muted)" }}
       >
-        {body}
+        Subscriptions auto-renew weekly. Cancel anytime from the Stripe
+        Customer Portal.
       </p>
-    </div>
+
+      {!user && (
+        <p className="mt-4 text-center text-sm">
+          <Link href="/auth?returnTo=/pricing" className="underline">
+            Sign in
+          </Link>{" "}
+          to subscribe.
+        </p>
+      )}
+    </main>
   );
 }

@@ -755,14 +755,45 @@ export async function accountJobsApply(
     return;
   }
 
+  const { ensureBillingSchema } = await import("./billing");
+  await ensureBillingSchema();
+
   const [me] = await db()
-    .select({ id: candidates.id })
+    .select({
+      id: candidates.id,
+      applicationsRemaining: candidates.applicationsRemaining,
+      billingTier: candidates.billingTier,
+      billingStatus: candidates.billingStatus,
+    })
     .from(candidates)
     .where(eq(candidates.firebaseUid, uid))
     .limit(1);
   if (!me) {
     res.status(404).json({ error: "no candidate row" });
     return;
+  }
+
+  // Idempotency: if this candidate already has an `applied` row for
+  // this job, the call is a no-op — don't decrement the quota again.
+  const [existingMatch] = await db()
+    .select({ status: matches.status })
+    .from(matches)
+    .where(and(eq(matches.candidateId, me.id), eq(matches.jobId, jobId)))
+    .limit(1);
+  const alreadyApplied = existingMatch?.status === "applied";
+
+  if (!alreadyApplied) {
+    // Quota gate. No subscription OR no remaining apps → 402 Payment
+    // Required. UI redirects to /pricing.
+    if (!me.billingTier || me.applicationsRemaining <= 0) {
+      res.status(402).json({
+        error: "quota_exceeded",
+        tier: me.billingTier,
+        applicationsRemaining: me.applicationsRemaining,
+        upgradeUrl: "/pricing",
+      });
+      return;
+    }
   }
 
   const [j] = await db()
@@ -791,8 +822,26 @@ export async function accountJobsApply(
       set: { status: "applied", updatedAt: new Date() },
     });
 
+  // Decrement quota only on first apply.
+  let remaining = me.applicationsRemaining;
+  if (!alreadyApplied) {
+    const [updated] = await db()
+      .update(candidates)
+      .set({
+        applicationsRemaining: sql`GREATEST(0, ${candidates.applicationsRemaining} - 1)`,
+      })
+      .where(eq(candidates.id, me.id))
+      .returning({ applicationsRemaining: candidates.applicationsRemaining });
+    remaining = updated?.applicationsRemaining ?? remaining;
+  }
+
   console.log(
-    `[apply] candidate=${me.id.slice(0, 8)} job=${j.id.slice(0, 8)} via=${via}`,
+    `[apply] candidate=${me.id.slice(0, 8)} job=${j.id.slice(0, 8)} via=${via} remaining=${remaining}`,
   );
-  res.json({ ok: true, applied: true });
+  res.json({
+    ok: true,
+    applied: true,
+    applicationsRemaining: remaining,
+    tier: me.billingTier,
+  });
 }

@@ -944,7 +944,15 @@ function JobCard({
       onApplied(job.id);
       setShowJustApplied(true);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Couldn't apply right now.");
+      const msg = e instanceof Error ? e.message : "Couldn't apply right now.";
+      // Quota gate: backend returns 402 quota_exceeded → bounce to
+      // pricing so the user can upgrade.
+      if (msg === "quota_exceeded" || msg.includes("quota_exceeded")) {
+        track("apply_blocked_quota", { jobId: job.id });
+        window.location.href = "/pricing?billing=quota_exceeded";
+        return;
+      }
+      setErr(msg);
     } finally {
       setBusy(false);
     }

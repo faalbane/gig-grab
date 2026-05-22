@@ -90,6 +90,15 @@ export const candidates = pgTable(
     linkedinId: text("linkedin_id"),
     matchSignals: jsonb("match_signals").$type<CandidateMatchSignals>(),
     profileEmbedding: vector("profile_embedding", { dimensions: 1536 }),
+    // Stripe billing state — inline since pilot is 1 active subscription
+    // per candidate. Split into its own table when teams/seats land.
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    billingTier: text("billing_tier").$type<CandidateBillingTier>(),
+    billingStatus: text("billing_status"),
+    billingPeriodEnd: timestamp("billing_period_end", { withTimezone: true }),
+    applicationsRemaining: integer("applications_remaining").notNull().default(0),
+    applicationsResetAt: timestamp("applications_reset_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     lastCallAt: timestamp("last_call_at", { withTimezone: true }),
   },
@@ -118,6 +127,8 @@ export type ProfileProject = {
 /** Per-field manual-override flags. Set true for any field the user has
  * edited via PUT /api/account/profile so subsequent transcript extracts
  * don't clobber the manual value with a freshly-extracted one. */
+export type CandidateBillingTier = "starter" | "professional" | "premium";
+
 export type ProfileManualOverrides = Partial<{
   name: boolean;
   title: boolean;
