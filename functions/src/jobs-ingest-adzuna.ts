@@ -575,9 +575,13 @@ export async function accountJobsList(
   // free text from Sarah's intake — typically "New York City" or
   // "Houston, TX" or "Manchester, UK". Take the first comma-split chunk
   // as the city so "Houston, TX" matches jobs.location of "Houston" /
-  // "Houston, Texas" / "Addicks, Houston". <3 chars treated as missing.
+  // "Houston, Texas" / "Addicks, Houston". Strip a trailing "City" so
+  // "New York City" matches jobs in "New York" / "New York, NY". <3
+  // chars treated as missing.
   const candidateCity = (me?.profileLocation ?? "")
     .split(",")[0]
+    .trim()
+    .replace(/\s+city\s*$/i, "")
     .trim()
     .slice(0, 80);
   const useCityFilter = candidateCity.length >= 3;
