@@ -281,9 +281,17 @@ type RecencyFilter = "any" | "7" | "30";
 type JobsResponse = {
   jobs: JobRow[];
   country: string;
-  mode: "exact" | "similar" | "personalized" | "recent" | "applied";
+  mode:
+    | "exact"
+    | "similar"
+    | "personalized"
+    | "personalized_local"
+    | "personalized_nationwide"
+    | "recent"
+    | "applied";
   q: string;
   totalCount: number;
+  candidateCity: string | null;
   hasMore: boolean;
 };
 
@@ -325,7 +333,7 @@ function JobsTab({
     return () => clearTimeout(id);
   }, [qInput]);
 
-  const [meta, setMeta] = useState<Pick<JobsResponse, "mode" | "totalCount" | "hasMore" | "q"> | null>(null);
+  const [meta, setMeta] = useState<Pick<JobsResponse, "mode" | "totalCount" | "hasMore" | "q" | "candidateCity"> | null>(null);
   const [offset, setOffset] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const PAGE_SIZE = 20;
@@ -358,6 +366,7 @@ function JobsTab({
           totalCount: data.totalCount,
           hasMore: data.hasMore,
           q: data.q,
+          candidateCity: data.candidateCity,
         });
       } catch (e) {
         if (!cancelled) {
@@ -395,6 +404,7 @@ function JobsTab({
         totalCount: data.totalCount,
         hasMore: data.hasMore,
         q: data.q,
+        candidateCity: data.candidateCity,
       });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't load more.");
@@ -435,6 +445,7 @@ function JobsTab({
       </div>
 
       <ModeBanner
+        candidateCity={meta?.candidateCity ?? null}
         mode={meta?.mode}
         q={meta?.q ?? ""}
         totalCount={meta?.totalCount ?? 0}
@@ -544,11 +555,13 @@ function ModeBanner({
   q,
   totalCount,
   loaded,
+  candidateCity,
 }: {
   mode: JobsResponse["mode"] | undefined;
   q: string;
   totalCount: number;
   loaded: number;
+  candidateCity: string | null;
 }) {
   if (!mode || loaded === 0) return null;
   let label = "";
@@ -558,6 +571,12 @@ function ModeBanner({
     tone = "green";
   } else if (mode === "similar") {
     label = `No exact matches for "${q}" — showing similar roles`;
+    tone = "amber";
+  } else if (mode === "personalized_local" && candidateCity) {
+    label = `${totalCount} role${totalCount === 1 ? "" : "s"} in ${candidateCity} — ranked for your profile`;
+    tone = "blue";
+  } else if (mode === "personalized_nationwide" && candidateCity) {
+    label = `No live roles in ${candidateCity} yet — showing closest matches nationwide`;
     tone = "amber";
   } else if (mode === "personalized") {
     label = `${totalCount} role${totalCount === 1 ? "" : "s"} — ranked for your profile`;

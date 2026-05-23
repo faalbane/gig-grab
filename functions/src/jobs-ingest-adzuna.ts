@@ -6,6 +6,7 @@ import {
   jobs,
   matches,
   candidates,
+  profileCards,
   type NewJob,
 } from "@gig-grab/db";
 import { eq, sql, inArray, and } from "drizzle-orm";
@@ -317,7 +318,13 @@ const REFRESH_QUERIES: Array<{
   where?: string;
 }> = [
   // Pilot focus 2026-05-21: Houston construction. Trades + adjacent
-  // roles. Old UK/US trades list retired — re-add when pilot expands.
+  // roles. Broadened 2026-05-23 to add a baseline coverage of NYC,
+  // Chicago, LA + a generic tech/office bucket so candidates outside
+  // Houston construction (e.g. a NYC CTO testing the dashboard) see
+  // SOMETHING in their city instead of an empty feed. Stay within
+  // Adzuna free tier (1000 calls/month) — cron runs every 12h, current
+  // list = 32 × 2 = 64/day = ~1920/month, will need a paid tier or 24h
+  // cadence drop to stay free.
   { country: "us", what: "construction", where: "Houston, TX" },
   { country: "us", what: "construction worker", where: "Houston, TX" },
   { country: "us", what: "construction manager", where: "Houston, TX" },
@@ -336,6 +343,24 @@ const REFRESH_QUERIES: Array<{
   { country: "us", what: "estimator construction", where: "Houston, TX" },
   { country: "us", what: "general laborer", where: "Houston, TX" },
   { country: "us", what: "pipefitter", where: "Houston, TX" },
+  // NYC coverage — construction trades + tech baseline.
+  { country: "us", what: "construction", where: "New York, NY" },
+  { country: "us", what: "carpenter", where: "New York, NY" },
+  { country: "us", what: "electrician", where: "New York, NY" },
+  { country: "us", what: "plumber", where: "New York, NY" },
+  { country: "us", what: "software engineer", where: "New York, NY" },
+  { country: "us", what: "full stack developer", where: "New York, NY" },
+  { country: "us", what: "product manager", where: "New York, NY" },
+  // Other top US metros, construction only (the pilot lane).
+  { country: "us", what: "construction", where: "Los Angeles, CA" },
+  { country: "us", what: "construction", where: "Chicago, IL" },
+  { country: "us", what: "construction", where: "Dallas, TX" },
+  { country: "us", what: "construction", where: "Phoenix, AZ" },
+  { country: "us", what: "construction", where: "Atlanta, GA" },
+  // UK baseline — pilot has UK candidates from prior cohort; one
+  // generic query per major city gives them non-zero coverage.
+  { country: "gb", what: "construction", where: "London" },
+  { country: "gb", what: "construction", where: "Manchester" },
 ];
 
 /**
@@ -539,10 +564,23 @@ export async function accountJobsList(
     .select({
       id: candidates.id,
       profileEmbedding: candidates.profileEmbedding,
+      profileLocation: profileCards.location,
     })
     .from(candidates)
+    .leftJoin(profileCards, eq(profileCards.candidateId, candidates.id))
     .where(eq(candidates.firebaseUid, uid))
     .limit(1);
+
+  // Candidate city for location-aware ranking. profile_cards.location is
+  // free text from Sarah's intake — typically "New York City" or
+  // "Houston, TX" or "Manchester, UK". Take the first comma-split chunk
+  // as the city so "Houston, TX" matches jobs.location of "Houston" /
+  // "Houston, Texas" / "Addicks, Houston". <3 chars treated as missing.
+  const candidateCity = (me?.profileLocation ?? "")
+    .split(",")[0]
+    .trim()
+    .slice(0, 80);
+  const useCityFilter = candidateCity.length >= 3;
 
   // Shared WHERE conditions used by both the primary query and the
   // similar-jobs fallback.
@@ -593,13 +631,30 @@ export async function accountJobsList(
   }
 
   // Mode label tells the UI how to header the list:
-  //   'exact'       — text search hits
-  //   'similar'     — text search empty → embedding fallback
-  //   'personalized'— no q, candidate has embedding → cosine to profile
-  //   'recent'      — no q, no embedding → createdAt desc
-  //   'applied'     — appliedOnly filter
-  let mode: "exact" | "similar" | "personalized" | "recent" | "applied" =
-    appliedOnly ? "applied" : q.length > 0 ? "exact" : "recent";
+  //   'exact'                 — text search hits
+  //   'similar'               — text search empty → embedding fallback
+  //   'personalized'          — no q, candidate has embedding → cosine to profile
+  //   'personalized_local'    — same as personalized, restricted to candidate's city
+  //   'personalized_nationwide' — city filter returned 0, dropped to country-wide
+  //   'recent'                — no q, no embedding → createdAt desc
+  //   'applied'               — appliedOnly filter
+  let mode:
+    | "exact"
+    | "similar"
+    | "personalized"
+    | "personalized_local"
+    | "personalized_nationwide"
+    | "recent"
+    | "applied" = appliedOnly ? "applied" : q.length > 0 ? "exact" : "recent";
+
+  // Location-aware filter for the personalized feed (no explicit text
+  // query, no applied filter). If the candidate has a city on file,
+  // restrict to that city first; if 0 results, drop the filter and
+  // label the response so the UI can explain.
+  const cityCondLike = useCityFilter ? `%${candidateCity}%` : null;
+  if (cityCondLike && !appliedOnly && !q) {
+    conditions.push(sql`${jobs.location} ILIKE ${cityCondLike}`);
+  }
 
   // Hybrid ranking. When the candidate has a profile embedding we
   // ALWAYS personalize the order (even on exact text matches) so a
@@ -612,14 +667,30 @@ export async function accountJobsList(
     const vec = sql`'[${sql.raw(me.profileEmbedding.join(","))}]'::vector`;
     orderClause = sql`(jobs.embedding <=> ${vec})`;
     usedCandidateEmbedding = true;
-    if (!q && !appliedOnly) mode = "personalized";
+    if (!q && !appliedOnly) {
+      mode = cityCondLike ? "personalized_local" : "personalized";
+    }
   }
 
   // Total count for "showing 1–20 of N". Cheap COUNT(*) on the same WHERE.
-  const [{ n: totalCount }] = await db()
+  let [{ n: totalCount }] = await db()
     .select({ n: sql<number>`count(*)::int` })
     .from(jobs)
     .where(sql.join(conditions, sql` AND `));
+
+  // City filter returned nothing — drop the city restriction and label
+  // the result so the UI can surface "no jobs in {city} yet — showing
+  // closest matches elsewhere".
+  let activeConditions = conditions;
+  if (cityCondLike && !appliedOnly && !q && totalCount === 0) {
+    activeConditions = conditions.slice(0, -1);
+    mode = "personalized_nationwide";
+    const [{ n: fallbackCount }] = await db()
+      .select({ n: sql<number>`count(*)::int` })
+      .from(jobs)
+      .where(sql.join(activeConditions, sql` AND `));
+    totalCount = fallbackCount;
+  }
 
   let rows = await db()
     .select({
@@ -633,7 +704,7 @@ export async function accountJobsList(
       createdAt: jobs.createdAt,
     })
     .from(jobs)
-    .where(sql.join(conditions, sql` AND `))
+    .where(sql.join(activeConditions, sql` AND `))
     .orderBy(orderClause)
     .limit(limit)
     .offset(offset);
@@ -723,6 +794,7 @@ export async function accountJobsList(
     mode,
     q,
     totalCount,
+    candidateCity: useCityFilter ? candidateCity : null,
     hasMore: offset + rows.length < totalCount && mode !== "similar",
   });
 }
