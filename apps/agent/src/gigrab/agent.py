@@ -736,18 +736,28 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     # a finalisation signal; we just need VAD to confirm). Lower confidence
     # so soft / accented speech still gates. Twilio mu-law 8 kHz: 0.5 min
     # volume catches typical phone audio without false-firing on hiss.
+    # VAD + turn-end tuning (2026-05-24 incident):
+    # stop_secs=0.25 + speech_timeout=0.6 was firing the LLM mid-sentence
+    # on natural pauses ("uh, I'm a... carpenter"). LLM kicked off →
+    # 300-1000 ms wasted → user resumed → LLM kicked off AGAIN. On a
+    # real call this manifested as 14-23 s gaps because each abandoned
+    # LLM call delayed the eventual usable one.
+    # Bumping: VAD stop_secs 0.25→0.5 + speech_timeout 0.6→1.0 = total
+    # ~1.5 s of patient silence before treating the user as done. Trade-
+    # off: snappier-feeling response when caller is brief, but mid-
+    # sentence interrupts stop wrecking the pipeline.
     user_aggregator_kwargs: dict = dict(
         vad_analyzer=SileroVADAnalyzer(
             params=VADParams(
                 confidence=0.55,
-                stop_secs=0.25,
+                stop_secs=0.5,
                 min_volume=0.5,
             ),
         ),
     )
     if UserTurnStrategies is not None and SpeechTimeoutUserTurnStopStrategy is not None:
         user_aggregator_kwargs["user_turn_strategies"] = UserTurnStrategies(
-            stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)],
+            stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=1.0)],
         )
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
@@ -757,16 +767,19 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     normalizer = CandidateTextNormalizer()
     db_writer_user = TranscriptDbWriter(cfg.session_id, role="candidate")
     db_writer_ai = TranscriptDbWriter(cfg.session_id, role="ai")
-    match_injector = MatchInjector(context)
     wrap_up_hangup = WrapUpHangup()
 
+    # MatchInjector removed 2026-05-24: every injection added ~300 system
+    # tokens to subsequent LLM calls (~100 ms extra TTFT each turn) +
+    # OpenAI embed RPC on the agent's hot path. Post-call SMS already
+    # delivers the top 3 matches; mid-call recital is non-MVP and the
+    # latency cost is no longer tolerable for the pilot.
     pipeline = Pipeline(
         [
             transport.input(),
             stt,
             normalizer,         # rewrites spell-out patterns before LLM sees them
             db_writer_user,     # captures candidate's TranscriptionFrames
-            match_injector,     # after N candidate turns, inject top matches into LLM context
             user_aggregator,
             llm,
             db_writer_ai,       # captures AI's TextFrame chunks before TTS
