@@ -381,7 +381,12 @@ export async function extractProfile(sessionId: string): Promise<void> {
     .join("\n");
 
   const message = await client.messages.create({
-    model: "claude-sonnet-4-6",
+    // Haiku 4.5 instead of Sonnet 4.6 — 5x cheaper ($1/$5 vs $3/$15 per
+    // M tokens). Structured tool-use extraction is well within Haiku's
+    // capability for this schema. If output quality degrades visibly on
+    // pilot calls (sparse summaries, missed tickets/projects), bump
+    // back to claude-sonnet-4-6.
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 1024,
     system: PROFILE_EXTRACTION_PROMPT,
     tools: [PROFILE_TOOL],
