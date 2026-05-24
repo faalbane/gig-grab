@@ -7,6 +7,7 @@ import { Header } from "@/components/marketing/Header";
 import { EditableCvCard } from "@/components/profile/EditableCvCard";
 import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { BillingBanner } from "@/components/billing/BillingBanner";
+import { PaywallModal, PAYWALL_SEEN_KEY } from "@/components/billing/PaywallModal";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
 import { track } from "@/components/PostHogProvider";
 import { IconPhone, IconBolt } from "@/components/marketing/hotline/icons";
@@ -55,6 +56,7 @@ function DashboardPageInner() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [me, setMe] = useState<AccountMe | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [showPaywall, setShowPaywall] = useState(false);
 
   useEffect(() => {
     if (user === null) return; // pending
@@ -71,6 +73,24 @@ function DashboardPageInner() {
         if (!cancelled) {
           setErr(e instanceof Error ? e.message : "Could not load your account.");
         }
+      }
+      // First-time paywall pop-up. Check billing AFTER account load
+      // so we don't flash the modal on auth-pending mounts. Skip when
+      // localStorage flag is set (user already saw + dismissed) or when
+      // the user already has a paid sub.
+      try {
+        const seen =
+          typeof window !== "undefined" &&
+          localStorage.getItem(PAYWALL_SEEN_KEY) === "1";
+        if (seen) return;
+        const billing = await fetchWithAuth<{ hasSubscription: boolean }>(
+          "/api/billing/me",
+        );
+        if (cancelled) return;
+        if (!billing.hasSubscription) setShowPaywall(true);
+      } catch {
+        // Non-fatal — if billing/me fails the dashboard still loads,
+        // the user can hit /pricing manually.
       }
     })();
     return () => {
@@ -90,6 +110,7 @@ function DashboardPageInner() {
   return (
     <>
       <Header />
+      <PaywallModal open={showPaywall} onClose={() => setShowPaywall(false)} />
       <main
         className="flex-1"
         style={{
