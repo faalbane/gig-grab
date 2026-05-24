@@ -636,6 +636,47 @@ export async function adminInspectSession(
 }
 
 /**
+ * DELETE /api/admin/sessions/:id
+ *
+ * Hard-delete a session row and its transcript_turns (cascade) so the
+ * /admin transcript viewer no longer surfaces it. Used to wipe test
+ * calls. Does NOT touch the candidate row, matches, or audio recording
+ * URL — those are kept because the candidate may still want their
+ * profile + matches even if a specific call was a test. Pass
+ * ?cascade=full to also null the candidate's stored audio_url
+ * reference on this session (no-op for cascade).
+ */
+export async function adminDeleteSession(
+  req: Request,
+  res: Response,
+  sessionId: string,
+): Promise<void> {
+  const expected = process.env.INGEST_SECRET;
+  const got = req.header("x-ingest-secret") ?? "";
+  if (!expected || got !== expected) {
+    res.status(401).json({ error: "unauthorised" });
+    return;
+  }
+  const [existing] = await db()
+    .select({ id: sessions.id, candidateId: sessions.candidateId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "session not found" });
+    return;
+  }
+  // transcript_turns has ON DELETE CASCADE on session_id, so the row
+  // delete alone removes the chat history. Audio recording (if any)
+  // remains in Twilio Storage; we don't proxy a delete there.
+  await db().delete(sessions).where(eq(sessions.id, sessionId));
+  console.log(
+    `[admin/delete] session=${sessionId.slice(0, 8)} cand=${existing.candidateId?.slice(0, 8) ?? "—"} deleted`,
+  );
+  res.json({ ok: true, deleted: sessionId });
+}
+
+/**
  * GET /api/admin/find-candidate?name=Lisa  | ?phone=+44...
  * Read-only candidate lookup for RCA. Returns the most recent match
  * + their latest session summary.

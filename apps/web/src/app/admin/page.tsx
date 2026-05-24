@@ -158,6 +158,30 @@ function AdminConsole({
     }
   }
 
+  async function deleteSession(id: string) {
+    if (
+      !confirm(
+        "Permanently delete this session and its transcript? The candidate row + matches + Twilio recording are NOT deleted.",
+      )
+    ) {
+      return;
+    }
+    try {
+      const r = await fetch(`/api/admin/sessions/${id}`, {
+        method: "DELETE",
+        headers: { "x-ingest-secret": pw },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setSessions((prev) => prev?.filter((s) => s.id !== id) ?? null);
+      if (selectedId === id) {
+        setSelectedId(null);
+        setInspect(null);
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "delete failed");
+    }
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-6 flex items-center justify-between">
@@ -261,7 +285,10 @@ function AdminConsole({
           ) : loadingInspect || !inspect ? (
             <p className="text-sm text-gray-500">Loading transcript…</p>
           ) : (
-            <TranscriptDetail data={inspect} />
+            <TranscriptDetail
+              data={inspect}
+              onDelete={() => deleteSession(inspect.session.id)}
+            />
           )}
         </section>
       </div>
@@ -269,7 +296,13 @@ function AdminConsole({
   );
 }
 
-function TranscriptDetail({ data }: { data: InspectResponse }) {
+function TranscriptDetail({
+  data,
+  onDelete,
+}: {
+  data: InspectResponse;
+  onDelete: () => void;
+}) {
   const card = data.profileCard ?? {};
   const audioSrc = data.session.audioUrl
     ? `/api/admin/recording/${data.session.id}.mp3?k=${encodeURIComponent(
@@ -284,13 +317,22 @@ function TranscriptDetail({ data }: { data: InspectResponse }) {
       style={{ borderColor: "var(--gg-line)" }}
     >
       <header className="mb-4">
-        <h2
-          className="m-0 text-lg font-extrabold tracking-tight"
-          style={{ color: "var(--gg-ink)" }}
-        >
-          {card.name ?? "(unnamed)"}
-          {card.title ? ` — ${card.title}` : ""}
-        </h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2
+            className="m-0 text-lg font-extrabold tracking-tight"
+            style={{ color: "var(--gg-ink)" }}
+          >
+            {card.name ?? "(unnamed)"}
+            {card.title ? ` — ${card.title}` : ""}
+          </h2>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="shrink-0 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:border-red-400 hover:bg-red-50"
+          >
+            Delete session
+          </button>
+        </div>
         <p className="m-0 mt-0.5 text-xs" style={{ color: "var(--gg-muted)" }}>
           session {data.session.id.slice(0, 8)} ·{" "}
           {new Date(data.session.startedAt).toLocaleString()} ·{" "}

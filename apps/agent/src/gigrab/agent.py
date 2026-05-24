@@ -46,10 +46,6 @@ from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 try:
-    from pipecat.services.tts_service import TextAggregationMode  # type: ignore
-except ImportError:  # pragma: no cover
-    TextAggregationMode = None  # type: ignore
-try:
     from deepgram import LiveOptions  # type: ignore
 except ImportError:  # pragma: no cover
     LiveOptions = None  # type: ignore
@@ -59,6 +55,23 @@ try:
     )
 except ImportError:  # pragma: no cover
     MinWordsInterruptionStrategy = None  # type: ignore
+
+# Pipecat 0.0.108 wires LocalSmartTurnAnalyzerV3 (an on-device ONNX
+# turn-prediction model) as the DEFAULT user-turn-stop strategy. On
+# 8 kHz Twilio mu-law audio the model frequently mis-predicts that
+# the user hasn't finished speaking, which adds 8-15 s between the
+# caller pausing and Sarah replying. SpeechTimeoutUserTurnStopStrategy
+# is the original pure-VAD path: after VAD detects stop, wait
+# user_speech_timeout (0.6 s default) for any continuation, then
+# end the user turn. No ML inference, low + predictable latency.
+try:
+    from pipecat.turns.user_turn_strategies import UserTurnStrategies  # type: ignore
+    from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (  # type: ignore
+        SpeechTimeoutUserTurnStopStrategy,
+    )
+except ImportError:  # pragma: no cover
+    UserTurnStrategies = None  # type: ignore
+    SpeechTimeoutUserTurnStopStrategy = None  # type: ignore
 # Pipecat 0.0.108 still ships the legacy paths but emits DeprecationWarnings
 # on import. We use the new paths to silence them and stay compatible with
 # whatever 0.x point release is current.
@@ -662,14 +675,13 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
 
     # Cartesia sample_rate matches the transport rate to skip a resample
     # hop. Phone = 8 kHz (Twilio mu-law), web = 16 kHz raw PCM.
-    # text_aggregation_mode=TOKEN streams tokens to Cartesia as the LLM
-    # produces them instead of buffering whole sentences — Cartesia
-    # Sonic-2 starts audio playback in ~100 ms vs ~250-300 ms with the
-    # default SENTENCE mode. Sonic-2 handles per-token prosody well so
-    # this doesn't sound choppy on a fast LLM (Groq Llama 3.1 8B ≈
-    # 300 tok/s here).
+    # TOKEN aggregation mode was tried + reverted 2026-05-24: on a real
+    # call from Oregon the first-audio gap was ~9.5 s vs Cartesia's
+    # advertised ~150 ms. SENTENCE mode (default) lets Cartesia receive
+    # a complete sentence and synthesize in one streaming call — much
+    # faster TTFB on a cold WS for short greetings.
     cartesia_sr = 16000 if cfg.surface == "web" else 8000
-    cartesia_kwargs: dict = dict(
+    tts = CartesiaTTSService(
         api_key=os.environ["CARTESIA_API_KEY"],
         voice_id=os.getenv("CARTESIA_VOICE_ID") or pick_cartesia_voice(cfg.language),
         model="sonic-2",
@@ -679,9 +691,6 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ),
         name="cartesia-tts",
     )
-    if TextAggregationMode is not None:
-        cartesia_kwargs["text_aggregation_mode"] = TextAggregationMode.TOKEN
-    tts = CartesiaTTSService(**cartesia_kwargs)
 
     # Universal LLMContext + LLMContextAggregatorPair (the non-deprecated
     # path in pipecat 0.0.108). The deprecated OpenAIUserContextAggregator
@@ -727,17 +736,22 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
     # a finalisation signal; we just need VAD to confirm). Lower confidence
     # so soft / accented speech still gates. Twilio mu-law 8 kHz: 0.5 min
     # volume catches typical phone audio without false-firing on hiss.
-    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
-        context,
-        user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(
-                    confidence=0.55,
-                    stop_secs=0.25,
-                    min_volume=0.5,
-                ),
+    user_aggregator_kwargs: dict = dict(
+        vad_analyzer=SileroVADAnalyzer(
+            params=VADParams(
+                confidence=0.55,
+                stop_secs=0.25,
+                min_volume=0.5,
             ),
         ),
+    )
+    if UserTurnStrategies is not None and SpeechTimeoutUserTurnStopStrategy is not None:
+        user_aggregator_kwargs["user_turn_strategies"] = UserTurnStrategies(
+            stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)],
+        )
+    user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(**user_aggregator_kwargs),
     )
 
     normalizer = CandidateTextNormalizer()

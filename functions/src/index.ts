@@ -36,6 +36,7 @@ import {
   adminRerunExtract,
   adminEmbedBackfill,
   adminInspectSession,
+  adminDeleteSession,
   adminFindCandidate,
   adminPauseJobSource,
   adminFixCurrency,
@@ -191,6 +192,13 @@ export const api = onRequest(
       );
       if (inspectMatch && method === "GET") {
         await adminInspectSession(req, res, inspectMatch[1]);
+        return;
+      }
+      const deleteSessionMatch = path.match(
+        /^\/admin\/sessions\/([0-9a-f-]{36})$/,
+      );
+      if (deleteSessionMatch && method === "DELETE") {
+        await adminDeleteSession(req, res, deleteSessionMatch[1]);
         return;
       }
       if (method === "GET" && path === "/admin/find-candidate") {
