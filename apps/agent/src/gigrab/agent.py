@@ -46,6 +46,10 @@ from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 try:
+    from pipecat.services.tts_service import TextAggregationMode  # type: ignore
+except ImportError:  # pragma: no cover
+    TextAggregationMode = None  # type: ignore
+try:
     from deepgram import LiveOptions  # type: ignore
 except ImportError:  # pragma: no cover
     LiveOptions = None  # type: ignore
@@ -658,8 +662,14 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
 
     # Cartesia sample_rate matches the transport rate to skip a resample
     # hop. Phone = 8 kHz (Twilio mu-law), web = 16 kHz raw PCM.
+    # text_aggregation_mode=TOKEN streams tokens to Cartesia as the LLM
+    # produces them instead of buffering whole sentences — Cartesia
+    # Sonic-2 starts audio playback in ~100 ms vs ~250-300 ms with the
+    # default SENTENCE mode. Sonic-2 handles per-token prosody well so
+    # this doesn't sound choppy on a fast LLM (Groq Llama 3.1 8B ≈
+    # 300 tok/s here).
     cartesia_sr = 16000 if cfg.surface == "web" else 8000
-    tts = CartesiaTTSService(
+    cartesia_kwargs: dict = dict(
         api_key=os.environ["CARTESIA_API_KEY"],
         voice_id=os.getenv("CARTESIA_VOICE_ID") or pick_cartesia_voice(cfg.language),
         model="sonic-2",
@@ -669,6 +679,9 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
         ),
         name="cartesia-tts",
     )
+    if TextAggregationMode is not None:
+        cartesia_kwargs["text_aggregation_mode"] = TextAggregationMode.TOKEN
+    tts = CartesiaTTSService(**cartesia_kwargs)
 
     # Universal LLMContext + LLMContextAggregatorPair (the non-deprecated
     # path in pipecat 0.0.108). The deprecated OpenAIUserContextAggregator
