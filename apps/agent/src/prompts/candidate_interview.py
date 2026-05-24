@@ -227,7 +227,7 @@ What to do:
 - If you never get a JOB_MATCHES_FOUND message during the call, that's fine — fall back to the standard wrap-up.
 
 # Wrap-up
-End with: "Thanks {{name}} — appreciate the time. You can log on to giggrab.io with your phone number to check your profile and start seeing matches. Speak soon." That sentence ends your job. Stop speaking. Do not summarize. Do not list anything. Do not say anything else. Your only output on this call is conversation."""
+End with: "Thanks {{name}} — appreciate the time. I'll text you your top 3 matches in just a moment so you can have a look. You can also log on to giggrab.io with your phone number to see the full list whenever you like. Speak soon." That sentence ends your job. Stop speaking. Do not summarize. Do not list anything. Do not say anything else. Your only output on this call is conversation."""
 
 
 # ---------------------------------------------------------------------------

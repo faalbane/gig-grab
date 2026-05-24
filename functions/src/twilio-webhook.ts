@@ -250,6 +250,25 @@ async function applyTwilioStatus(
             await extractEmployerJob(sessionId);
           } else {
             await extractProfile(sessionId);
+            // Post-call trust-builder: SMS the caller their top 3
+            // matches. Only on candidate calls. Fire-and-forget so a
+            // Twilio outage on the SMS leg doesn't block the status
+            // callback response. extractProfile already kicked off
+            // embedCandidate; await a beat to give it a chance, then
+            // try — sendPostCallMatches no-ops if the embedding isn't
+            // there yet.
+            void (async () => {
+              try {
+                await new Promise((r) => setTimeout(r, 1500));
+                const { sendPostCallMatches } = await import("./post-call-sms");
+                const r = await sendPostCallMatches(row.candidateId!);
+                console.log(
+                  `[post-call-sms] cand=${row.candidateId!.slice(0, 8)} ok=${r.ok} reason=${r.reason ?? ""} sid=${r.sid ?? ""} count=${r.count ?? 0}`,
+                );
+              } catch (err) {
+                console.error("[post-call-sms] failed", err);
+              }
+            })();
           }
         } catch (err) {
           console.error("[extract] dispatch failed", err);
