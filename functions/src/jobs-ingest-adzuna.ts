@@ -840,6 +840,8 @@ export async function accountJobsApply(
       applicationsRemaining: candidates.applicationsRemaining,
       billingTier: candidates.billingTier,
       billingStatus: candidates.billingStatus,
+      stripeSubscriptionId: candidates.stripeSubscriptionId,
+      applicationsResetAt: candidates.applicationsResetAt,
     })
     .from(candidates)
     .where(eq(candidates.firebaseUid, uid))
@@ -859,13 +861,26 @@ export async function accountJobsApply(
   const alreadyApplied = existingMatch?.status === "applied";
 
   if (!alreadyApplied) {
-    // Quota gate. No subscription OR no remaining apps → 402 Payment
-    // Required. UI redirects to /pricing.
-    if (!me.billingTier || me.applicationsRemaining <= 0) {
+    // Canonical quota gate — count matches directly so we never
+    // depend on the drifty applicationsRemaining counter. Free tier
+    // (billingTier=null) gets FREE_APPLICATIONS; paid tier reads from
+    // TIER_PLANS scoped to the current billing window. Crucially we
+    // NO LONGER require billingTier to be set — free users could
+    // never apply otherwise.
+    const { getCandidateQuota } = await import("./billing");
+    const quota = await getCandidateQuota({
+      id: me.id,
+      billingTier: me.billingTier,
+      stripeSubscriptionId: me.stripeSubscriptionId,
+      applicationsResetAt: me.applicationsResetAt,
+    });
+    if (quota.applicationsRemaining <= 0) {
       res.status(402).json({
         error: "quota_exceeded",
         tier: me.billingTier,
-        applicationsRemaining: me.applicationsRemaining,
+        applicationsRemaining: quota.applicationsRemaining,
+        applicationsUsed: quota.applicationsUsed,
+        periodTotal: quota.periodTotal,
         upgradeUrl: "/pricing",
       });
       return;

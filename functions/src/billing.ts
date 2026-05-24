@@ -101,6 +101,71 @@ export const TIER_PLANS: Record<
 // Free tier: every new candidate gets 10 applications, no card needed.
 export const FREE_APPLICATIONS = 10;
 
+/**
+ * Canonical quota lookup. Reads `matches` directly so we never depend
+ * on the denormalized `candidates.applicationsRemaining` counter (which
+ * has historically drifted because two write paths exist). Used by
+ * both billingMe (display) and accountJobsApply (gate) so they always
+ * agree.
+ *
+ * Window: paid tiers count rows since applicationsResetAt (set by the
+ * Stripe webhook on checkout/renewal). Free tier counts all-time —
+ * no reset cron exists today.
+ */
+export type CandidateQuotaInput = {
+  id: string;
+  billingTier: CandidateBillingTier | null;
+  stripeSubscriptionId: string | null;
+  applicationsResetAt: Date | null;
+};
+
+export type CandidateQuota = {
+  periodTotal: number;
+  applicationsUsed: number;
+  applicationsRemaining: number;
+  interval: BillingInterval;
+};
+
+export async function getCandidateQuota(
+  c: CandidateQuotaInput,
+): Promise<CandidateQuota> {
+  let periodTotal = FREE_APPLICATIONS;
+  let interval: BillingInterval = "week";
+  if (c.billingTier && c.stripeSubscriptionId) {
+    try {
+      const sub = (await stripeClient().subscriptions.retrieve(
+        c.stripeSubscriptionId,
+      )) as unknown as {
+        items?: { data: Array<{ price?: { recurring?: { interval?: string } } }> };
+      };
+      if (sub.items?.data?.[0]?.price?.recurring?.interval === "month") {
+        interval = "month";
+      }
+    } catch {
+      // ignore; default to week
+    }
+    periodTotal =
+      TIER_PLANS[c.billingTier]?.[interval]?.applications ??
+      TIER_PLANS[c.billingTier]?.week?.applications ??
+      FREE_APPLICATIONS;
+  }
+
+  const periodStart = c.billingTier ? c.applicationsResetAt : null;
+  const usedConds = [
+    eq(matches.candidateId, c.id),
+    eq(matches.status, "applied"),
+  ];
+  if (periodStart) {
+    usedConds.push(sql`${matches.createdAt} >= ${periodStart}`);
+  }
+  const [{ n: applicationsUsed }] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(matches)
+    .where(sql.join(usedConds, sql` AND `));
+  const applicationsRemaining = Math.max(0, periodTotal - applicationsUsed);
+  return { periodTotal, applicationsUsed, applicationsRemaining, interval };
+}
+
 function publicWebOrigin(): string {
   return process.env.PUBLIC_WEB_URL ?? "https://giggrab.io";
 }
@@ -169,60 +234,19 @@ export async function billingMe(req: Request, res: Response): Promise<void> {
     res.json({ tier: null, status: null, applicationsRemaining: 0 });
     return;
   }
-  // Period total so the client can show "X of N used" without
-  // hardcoding tier→quota mapping. Free tier = FREE_APPLICATIONS;
-  // paid tier reads from TIER_PLANS using the current sub interval.
-  let periodTotal = FREE_APPLICATIONS;
-  let interval: BillingInterval = "week";
-  if (c.billingTier && c.stripeSubscriptionId) {
-    // Best-effort: peek at the subscription for its interval.
-    try {
-      const sub = (await stripeClient().subscriptions.retrieve(
-        c.stripeSubscriptionId,
-      )) as unknown as {
-        items?: { data: Array<{ price?: { recurring?: { interval?: string } } }> };
-      };
-      if (sub.items?.data?.[0]?.price?.recurring?.interval === "month") {
-        interval = "month";
-      }
-    } catch {
-      // ignore; default to week
-    }
-    periodTotal =
-      TIER_PLANS[c.billingTier]?.[interval]?.applications ??
-      TIER_PLANS[c.billingTier]?.week?.applications ??
-      FREE_APPLICATIONS;
-  }
-  // Source of truth: count rows in `matches` directly. The denormalized
-  // counter `candidates.applicationsRemaining` is a cache used by the
-  // quota gate in accountJobsApply, but two write paths exist (web +
-  // phone-apply-intent in profile.ts) and they have historically
-  // drifted. Counting matches eliminates that class of bug at the
-  // display layer.
-  //
-  // Window: paid tier counts only since the current period started
-  // (applicationsResetAt — set by the webhook on checkout/renewal).
-  // Free tier counts all-time (no reset mechanism exists today).
-  const periodStart = c.billingTier ? c.applicationsResetAt : null;
-  const usedConds = [
-    eq(matches.candidateId, c.id),
-    eq(matches.status, "applied"),
-  ];
-  if (periodStart) {
-    usedConds.push(sql`${matches.createdAt} >= ${periodStart}`);
-  }
-  const [{ n: applicationsUsed }] = await db()
-    .select({ n: sql<number>`count(*)::int` })
-    .from(matches)
-    .where(sql.join(usedConds, sql` AND `));
-  const displayRemaining = Math.max(0, periodTotal - applicationsUsed);
+  const quota = await getCandidateQuota({
+    id: c.id,
+    billingTier: c.billingTier,
+    stripeSubscriptionId: c.stripeSubscriptionId,
+    applicationsResetAt: c.applicationsResetAt,
+  });
   res.json({
     tier: c.billingTier,
     status: c.billingStatus,
-    applicationsRemaining: displayRemaining,
-    applicationsUsed,
-    periodTotal,
-    interval,
+    applicationsRemaining: quota.applicationsRemaining,
+    applicationsUsed: quota.applicationsUsed,
+    periodTotal: quota.periodTotal,
+    interval: quota.interval,
     periodEnd: c.billingPeriodEnd,
     hasSubscription: !!c.stripeSubscriptionId,
   });
