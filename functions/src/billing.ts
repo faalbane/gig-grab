@@ -45,7 +45,7 @@ type StripeSubscription = {
   current_period_end?: number;
   items?: { data: Array<{ current_period_end?: number }> };
 };
-import { db, candidates, type CandidateBillingTier } from "@gig-grab/db";
+import { db, candidates, matches, type CandidateBillingTier } from "@gig-grab/db";
 import { eq, sql } from "drizzle-orm";
 
 export type BillingInterval = "week" | "month";
@@ -193,14 +193,33 @@ export async function billingMe(req: Request, res: Response): Promise<void> {
       TIER_PLANS[c.billingTier]?.week?.applications ??
       FREE_APPLICATIONS;
   }
-  const applicationsUsed = Math.max(
-    0,
-    periodTotal - (c.applicationsRemaining ?? 0),
-  );
+  // Source of truth: count rows in `matches` directly. The denormalized
+  // counter `candidates.applicationsRemaining` is a cache used by the
+  // quota gate in accountJobsApply, but two write paths exist (web +
+  // phone-apply-intent in profile.ts) and they have historically
+  // drifted. Counting matches eliminates that class of bug at the
+  // display layer.
+  //
+  // Window: paid tier counts only since the current period started
+  // (applicationsResetAt — set by the webhook on checkout/renewal).
+  // Free tier counts all-time (no reset mechanism exists today).
+  const periodStart = c.billingTier ? c.applicationsResetAt : null;
+  const usedConds = [
+    eq(matches.candidateId, c.id),
+    eq(matches.status, "applied"),
+  ];
+  if (periodStart) {
+    usedConds.push(sql`${matches.createdAt} >= ${periodStart}`);
+  }
+  const [{ n: applicationsUsed }] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(matches)
+    .where(sql.join(usedConds, sql` AND `));
+  const displayRemaining = Math.max(0, periodTotal - applicationsUsed);
   res.json({
     tier: c.billingTier,
     status: c.billingStatus,
-    applicationsRemaining: c.applicationsRemaining,
+    applicationsRemaining: displayRemaining,
     applicationsUsed,
     periodTotal,
     interval,

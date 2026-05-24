@@ -601,7 +601,21 @@ export async function extractProfile(sessionId: string): Promise<void> {
         status: writeStatus,
       };
       if (writeStatus === "applied") {
-        // High-confidence: write/escalate to applied.
+        // High-confidence: write/escalate to applied. Mirror the web
+        // apply path: decrement candidates.applicationsRemaining only
+        // on a TRUE new-or-promoted apply (idempotent for repeats so
+        // saying "apply for X" twice in one call doesn't double-charge).
+        const [priorMatch] = await db()
+          .select({ status: matches.status })
+          .from(matches)
+          .where(
+            and(
+              eq(matches.candidateId, session.candidateId),
+              eq(matches.jobId, hit.id),
+            ),
+          )
+          .limit(1);
+        const wasAlreadyApplied = priorMatch?.status === "applied";
         await db()
           .insert(matches)
           .values(insertRow)
@@ -609,6 +623,14 @@ export async function extractProfile(sessionId: string): Promise<void> {
             target: [matches.candidateId, matches.jobId],
             set: { status: "applied", updatedAt: new Date() },
           });
+        if (!wasAlreadyApplied) {
+          await db()
+            .update(candidates)
+            .set({
+              applicationsRemaining: sql`GREATEST(0, ${candidates.applicationsRemaining} - 1)`,
+            })
+            .where(eq(candidates.id, session.candidateId));
+        }
       } else {
         // Low/medium-confidence: only insert if no row exists yet; never
         // downgrade an existing `applied`/`screened`/`shortlisted` row.
