@@ -14,7 +14,7 @@ export const metadata = {
     "How GigGrab collects, uses, and protects personal data when you use our voice-first hiring service.",
 };
 
-const LAST_UPDATED = "2026-05-11";
+const LAST_UPDATED = "2026-05-27";
 
 export default function PrivacyPage() {
   return (
@@ -64,6 +64,14 @@ export default function PrivacyPage() {
                   with our AI recruiter, transcripts of those calls, call
                   metadata (start/end times, duration, phone number,
                   CallSid).
+                </li>
+                <li>
+                  <strong>SMS opt-in &amp; messaging data:</strong> the fact
+                  and time you opted in to SMS, the messages we send you
+                  (top-match summaries, application status updates,
+                  interview invitations, account notifications), delivery
+                  status returned by your carrier, and any opt-out (STOP)
+                  or help (HELP) replies.
                 </li>
                 <li>
                   <strong>Authentication data:</strong> Firebase user ID, the
@@ -173,6 +181,45 @@ export default function PrivacyPage() {
                 We do <strong>not</strong> sell your personal data and we do
                 not share it with employers without your explicit decision
                 to apply.
+              </p>
+              <p>
+                <strong>
+                  Mobile phone numbers and SMS opt-in data are never
+                  shared with any third party or affiliate for their
+                  marketing or promotional purposes.
+                </strong>{" "}
+                Twilio is used solely as the technical carrier that
+                delivers our transactional messages to your handset, on
+                our written instructions, under a data-processing
+                agreement.
+              </p>
+            </Section>
+
+            <Section heading="7A. SMS messaging program">
+              <p>
+                If you opt in to SMS (by calling our hotline at +1 551 553
+                4910 and completing voice intake, or by submitting your
+                phone number through giggrab.io and accepting our Terms),
+                we send transactional SMS messages — top job matches,
+                application status updates, interview invitations, account
+                notifications. We do not send marketing or promotional
+                SMS.
+              </p>
+              <p>
+                <strong>Message frequency varies</strong> (typically
+                1&ndash;5 messages per week);{" "}
+                <strong>message and data rates may apply</strong>. Reply{" "}
+                <strong>STOP</strong> to unsubscribe at any time, or{" "}
+                <strong>HELP</strong> for assistance. Full SMS program
+                details, opt-in/opt-out instructions, and carrier
+                disclaimers are in our{" "}
+                <Link
+                  href="/legal/terms"
+                  className="text-emerald-700 underline hover:text-emerald-800"
+                >
+                  Terms of Service §6
+                </Link>
+                .
               </p>
             </Section>
 

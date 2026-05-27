@@ -3,6 +3,11 @@
 // particular need professional review for the markets where GigGrab will
 // operate. Modeled loosely on ElevenLabs/Vapi structure plus standard
 // SaaS-for-recruitment terms.
+//
+// 2026-05-27: Added "6. SMS messaging program" section with explicit
+// A2P 10DLC required disclosures (program name, message frequency,
+// rates, HELP/STOP, opt-in/out, support). Twilio campaign reviewers
+// look for these verbatim. Existing sections renumbered 6→7, 7→8, etc.
 
 import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
@@ -13,7 +18,7 @@ export const metadata = {
   description: "The agreement between you and GigGrab when you use our service.",
 };
 
-const LAST_UPDATED = "2026-05-11";
+const LAST_UPDATED = "2026-05-27";
 
 export default function TermsPage() {
   return (
@@ -40,10 +45,11 @@ export default function TermsPage() {
                 are a binding agreement between you and GigGrab Ltd
                 (&ldquo;<strong>GigGrab</strong>&rdquo;, &ldquo;we&rdquo;,
                 &ldquo;us&rdquo;), a company registered in England &amp;
-                Wales. By using our website, hotline, voice agent, or any
-                related service (the &ldquo;<strong>Service</strong>&rdquo;),
-                you agree to these Terms. If you don&rsquo;t agree, please
-                don&rsquo;t use the Service.
+                Wales. By using our website, hotline, voice agent, SMS
+                messages, or any related service (the
+                &ldquo;<strong>Service</strong>&rdquo;), you agree to these
+                Terms. If you don&rsquo;t agree, please don&rsquo;t use the
+                Service.
               </p>
             </Section>
 
@@ -95,7 +101,76 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="6. Acceptable use">
+            <Section heading="6. SMS messaging program">
+              <p>
+                <strong>Program name:</strong> GigGrab Recruiter Updates.
+              </p>
+              <p>
+                <strong>Description:</strong> After you complete a voice
+                intake with our AI recruiter (by calling our hotline at
+                +1 551 553 4910 or by submitting your phone number through
+                our intake form at giggrab.io), we send you transactional
+                SMS messages containing your top job matches, application
+                status updates, employer responses, interview invitations,
+                and account notifications.
+              </p>
+              <p>
+                <strong>How you opt in:</strong> You opt in to receive SMS
+                messages from GigGrab by (a) calling our hotline and
+                completing the voice intake — the AI recruiter discloses
+                that we will follow up by text; or (b) submitting your
+                phone number through the intake form at giggrab.io, where
+                you affirmatively agree to these Terms before submission.
+                Providing your mobile number through either route
+                constitutes your express written consent to receive
+                recurring SMS messages from GigGrab at that number,
+                including messages sent using an automatic telephone
+                dialing system.
+              </p>
+              <p>
+                <strong>Message frequency:</strong> Message frequency
+                varies based on your activity and matched roles, typically
+                1&ndash;5 messages per week. We do not send marketing or
+                promotional SMS.
+              </p>
+              <p>
+                <strong>Message and data rates may apply.</strong> You are
+                responsible for any fees your mobile carrier charges to
+                send or receive text messages. GigGrab does not charge for
+                SMS.
+              </p>
+              <p>
+                <strong>How to opt out:</strong> Reply{" "}
+                <strong>STOP</strong> to any GigGrab SMS at any time to
+                immediately and permanently unsubscribe from all SMS
+                messages from this program. You will receive a single
+                confirmation message and then no further texts.
+              </p>
+              <p>
+                <strong>How to get help:</strong> Reply{" "}
+                <strong>HELP</strong> to any GigGrab SMS for assistance.
+                You can also email{" "}
+                <a href="mailto:hello@giggrab.io">hello@giggrab.io</a>.
+              </p>
+              <p>
+                <strong>Carrier disclaimer:</strong> Mobile carriers
+                (including but not limited to AT&amp;T, T-Mobile, Verizon,
+                and their affiliates) are not liable for delayed or
+                undelivered messages.
+              </p>
+              <p>
+                <strong>Privacy:</strong> We do not sell, rent, or share
+                your mobile phone number or SMS opt-in data with any third
+                party or affiliate for their marketing or promotional
+                purposes. See our{" "}
+                <Link href="/legal/privacy" className="text-emerald-700 underline">
+                  Privacy Policy
+                </Link>{" "}
+                for details on how we handle your data.
+              </p>
+            </Section>
+
+            <Section heading="7. Acceptable use">
               <p>You agree not to:</p>
               <ul>
                 <li>Submit false, misleading, or third-party information.</li>
@@ -111,7 +186,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="7. Your content and licence">
+            <Section heading="8. Your content and licence">
               <p>
                 You keep ownership of the content you provide (your voice
                 recording, your transcripts, your profile data,
@@ -124,7 +199,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="8. Employers">
+            <Section heading="9. Employers">
               <p>
                 If you&rsquo;re an employer using GigGrab, you additionally
                 warrant that you have the authority to post the role, that
@@ -134,16 +209,16 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="9. Fees">
+            <Section heading="10. Fees">
               <p>
-                The candidate-facing Service is free to use. We may
-                introduce optional paid features in future; we&rsquo;ll
-                tell you the price before you opt in. Employers pay for
+                The candidate-facing Service is free to use at the free
+                tier. Optional paid plans (described on our pricing page)
+                give additional application capacity. Employers pay for
                 hiring features under their separate agreement.
               </p>
             </Section>
 
-            <Section heading="10. Service availability">
+            <Section heading="11. Service availability">
               <p>
                 We aim for high availability but the Service is provided
                 &ldquo;as is&rdquo; and &ldquo;as available&rdquo;. We
@@ -153,7 +228,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="11. Disclaimers">
+            <Section heading="12. Disclaimers">
               <p>
                 To the fullest extent permitted by law, GigGrab disclaims
                 all warranties, express or implied, including merchantability,
@@ -164,7 +239,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="12. Limitation of liability">
+            <Section heading="13. Limitation of liability">
               <p>
                 Nothing in these Terms limits liability that cannot be
                 excluded under English law (including for death or personal
@@ -180,7 +255,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="13. Termination">
+            <Section heading="14. Termination">
               <p>
                 You may stop using the Service at any time and request
                 account deletion via{" "}
@@ -192,7 +267,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="14. Changes">
+            <Section heading="15. Changes">
               <p>
                 We may update these Terms. Material changes are notified by
                 email or prominent in-app notice at least 14 days before
@@ -201,7 +276,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="15. Governing law &amp; disputes">
+            <Section heading="16. Governing law &amp; disputes">
               <p>
                 These Terms are governed by the laws of England &amp; Wales.
                 The courts of England &amp; Wales have exclusive
@@ -212,7 +287,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section heading="16. Contact">
+            <Section heading="17. Contact">
               <p>
                 Questions: <a href="mailto:hello@giggrab.io">hello@giggrab.io</a>.
                 Privacy or data-rights requests:{" "}
