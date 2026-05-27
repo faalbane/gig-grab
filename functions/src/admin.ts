@@ -337,10 +337,15 @@ export async function adminSessionsRecent(
         endedAt: row.ended_at,
         durationSeconds: row.duration_seconds,
         candidateId: row.candidate_id,
-        // Mask phone to last 4 for safer team viewing.
+        // Both surfaces:
+        //   phoneMasked → safe to render by default
+        //   phone       → full E.164 for the team to call back. Returned
+        //                 because admin is INGEST_SECRET-gated; not added
+        //                 anywhere candidate-visible.
         phoneMasked: phone
           ? `${phone.startsWith("+") ? phone.slice(0, 3) : "***"}…${phone.slice(-4)}`
           : null,
+        phone: phone || null,
         name: row.name ?? null,
         title: row.title ?? null,
         years: row.years ?? null,
@@ -621,11 +626,69 @@ export async function adminInspectSession(
     .where(eq(transcriptTurns.sessionId, sessionId))
     .orderBy(asc(transcriptTurns.ord));
 
+  // Top job matches for this candidate. Same cosine-vs-jobs.embedding
+  // logic the dashboard uses (location-filtered when the candidate has
+  // a city; nationwide fallback if 0 hits). Returns the apply URL from
+  // structured_brief.applyUrl so the admin viewer can link out.
+  let topMatches: Array<{
+    id: string;
+    title: string;
+    company: string | null;
+    location: string;
+    pay: string | null;
+    applyUrl: string | null;
+    distance: number | null;
+  }> = [];
+  if (cand?.profileEmbedding) {
+    const vecLit = `[${cand.profileEmbedding.join(",")}]`;
+    const city = (card?.location ?? "")
+      .split(",")[0]
+      .trim()
+      .replace(/\s+city\s*$/i, "")
+      .trim()
+      .slice(0, 80);
+    const cityLike = city.length >= 3 ? `%${city}%` : null;
+    async function fetchN(useCity: boolean, n: number) {
+      const conds = [
+        eq(jobs.status, "active"),
+        sql`${jobs.embedding} IS NOT NULL`,
+      ];
+      if (useCity && cityLike) {
+        conds.push(sql`${jobs.location} ILIKE ${cityLike}`);
+      }
+      return await db()
+        .select({
+          id: jobs.id,
+          title: jobs.title,
+          company: sql<string | null>`(${jobs.structuredBrief}->>'company')`,
+          location: jobs.location,
+          pay: jobs.pay,
+          applyUrl: sql<string | null>`(${jobs.structuredBrief}->>'applyUrl')`,
+          distance: sql<number>`(${jobs.embedding} <=> ${vecLit}::vector)::float`,
+        })
+        .from(jobs)
+        .where(sql.join(conds, sql` AND `))
+        .orderBy(sql`${jobs.embedding} <=> ${vecLit}::vector`)
+        .limit(n);
+    }
+    let rows = await fetchN(true, 5);
+    if (rows.length === 0 && cityLike) {
+      rows = await fetchN(false, 5);
+    }
+    topMatches = rows.map((r) => ({
+      ...r,
+      // Only surface http(s) URLs to defend against any junk in
+      // structured_brief that could otherwise land in the admin DOM.
+      applyUrl: /^https?:\/\//.test(r.applyUrl ?? "") ? r.applyUrl : null,
+    }));
+  }
+
   res.json({
     session: s,
     candidate: cand ?? null,
     profileCard: card ?? null,
     transcript: turns,
+    topMatches,
     summary: {
       turnCount: turns.length,
       hasCard: !!card,

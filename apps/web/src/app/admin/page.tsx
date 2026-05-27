@@ -23,11 +23,22 @@ type SessionRow = {
   durationSeconds: number | null;
   candidateId: string | null;
   phoneMasked: string | null;
+  phone: string | null;
   name: string | null;
   title: string | null;
   years: number | null;
   location: string | null;
   turnCount: number;
+};
+
+type MatchRow = {
+  id: string;
+  title: string;
+  company: string | null;
+  location: string;
+  pay: string | null;
+  applyUrl: string | null;
+  distance: number | null;
 };
 
 type Turn = {
@@ -48,6 +59,7 @@ type InspectResponse = {
   candidate: { phone: string; email: string | null } | null;
   profileCard: { name?: string; title?: string; yearsExperience?: number; location?: string; summary?: string } | null;
   transcript: Turn[];
+  topMatches?: MatchRow[];
   summary?: { turnCount: number; cardName?: string | null };
 };
 
@@ -266,9 +278,22 @@ function AdminConsole({
                   style={{ color: "var(--gg-muted)", letterSpacing: "0.04em" }}
                 >
                   {new Date(s.startedAt).toLocaleString()} ·{" "}
-                  {s.durationSeconds ? `${s.durationSeconds}s` : s.status} · {s.turnCount} turns ·{" "}
-                  {s.phoneMasked ?? "no phone"}
+                  {s.durationSeconds ? `${s.durationSeconds}s` : s.status} · {s.turnCount} turns
                 </p>
+                {s.phone && (
+                  <p
+                    className="mono m-0 mt-0.5 text-[11px] font-semibold"
+                    style={{ color: "var(--gg-ink-2)" }}
+                  >
+                    <a
+                      href={`tel:${s.phone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ color: "var(--gg-green-dark)" }}
+                    >
+                      {s.phone}
+                    </a>
+                  </p>
+                )}
               </button>
             ))
           )}
@@ -339,6 +364,31 @@ function TranscriptDetail({
           {data.session.status} ·{" "}
           {data.summary?.turnCount ?? data.transcript.length} turns
         </p>
+        {data.candidate?.phone && (
+          <p
+            className="mono m-0 mt-1.5 text-xs font-semibold"
+            style={{ color: "var(--gg-ink-2)" }}
+          >
+            Phone:{" "}
+            <a
+              href={`tel:${data.candidate.phone}`}
+              style={{ color: "var(--gg-green-dark)" }}
+            >
+              {data.candidate.phone}
+            </a>
+            {data.candidate.email ? (
+              <>
+                {" · "}
+                <a
+                  href={`mailto:${data.candidate.email}`}
+                  style={{ color: "var(--gg-green-dark)" }}
+                >
+                  {data.candidate.email}
+                </a>
+              </>
+            ) : null}
+          </p>
+        )}
         {card.summary && (
           <p
             className="mt-3 rounded-md bg-gray-50 p-3 text-sm leading-relaxed"
@@ -359,6 +409,67 @@ function TranscriptDetail({
           </div>
         )}
       </header>
+
+      {data.topMatches && data.topMatches.length > 0 && (
+        <section className="mb-5">
+          <p
+            className="mono text-[10px] font-semibold uppercase"
+            style={{ color: "var(--gg-muted)", letterSpacing: "0.12em" }}
+          >
+            Top job matches ({data.topMatches.length})
+          </p>
+          <ul className="mt-1.5 space-y-1.5">
+            {data.topMatches.map((m) => (
+              <li
+                key={m.id}
+                className="rounded-md border bg-white p-2.5 text-sm"
+                style={{ borderColor: "var(--gg-line)" }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="m-0 font-bold tracking-tight"
+                      style={{ color: "var(--gg-ink)" }}
+                    >
+                      {m.title}
+                      {m.company ? (
+                        <span style={{ color: "var(--gg-ink-2)" }}>
+                          {" "}@ {m.company}
+                        </span>
+                      ) : null}
+                    </p>
+                    <p
+                      className="m-0 mt-0.5 text-xs"
+                      style={{ color: "var(--gg-muted)" }}
+                    >
+                      {m.location}
+                      {m.pay ? <> · {m.pay}</> : null}
+                      {typeof m.distance === "number" ? (
+                        <> · cosine {m.distance.toFixed(3)}</>
+                      ) : null}
+                    </p>
+                  </div>
+                  {m.applyUrl && (
+                    <a
+                      href={m.applyUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold"
+                      style={{
+                        background: "var(--gg-green-dark)",
+                        color: "white",
+                      }}
+                    >
+                      View ↗
+                    </a>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <ol className="space-y-2">
         {data.transcript.map((t) => (
           <li
