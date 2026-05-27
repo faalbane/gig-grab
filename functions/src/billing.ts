@@ -45,7 +45,14 @@ type StripeSubscription = {
   current_period_end?: number;
   items?: { data: Array<{ current_period_end?: number }> };
 };
-import { db, candidates, matches, type CandidateBillingTier } from "@gig-grab/db";
+import {
+  db,
+  candidates,
+  matches,
+  employers,
+  type CandidateBillingTier,
+  type EmployerBillingTier,
+} from "@gig-grab/db";
 import { eq, sql } from "drizzle-orm";
 
 export type BillingInterval = "week" | "month";
@@ -100,6 +107,72 @@ export const TIER_PLANS: Record<
 
 // Free tier: every new candidate gets 10 applications, no card needed.
 export const FREE_APPLICATIONS = 10;
+
+// Employer Stripe plans.
+//
+// ▶ PLACEHOLDER AMOUNTS — edit `amountCents` / `reviews` before sharing
+//   the checkout link with a real employer. Stripe Checkout uses
+//   `price_data` inline so no pre-created Stripe Price IDs needed; the
+//   amounts here ARE the amounts charged. Currency = USD.
+// ▶ Reviews = each shortlist / interview-request / reject action on a
+//   candidate counts as one. Mirrors the free-tier `freeReviewsUsed`
+//   counter on employers.
+// ▶ Unlimited tier uses 999_999 sentinel; gate code treats as effectively
+//   uncapped.
+export const EMPLOYER_FREE_REVIEWS = 3;
+
+export const EMPLOYER_TIER_PLANS: Record<
+  EmployerBillingTier,
+  Record<
+    BillingInterval,
+    { reviews: number; amountCents: number }
+  > & { label: string; productName: string }
+> = {
+  lite: {
+    label: "Hiring Lite",
+    productName: "GigGrab Hiring Lite",
+    week: { reviews: 25, amountCents: 9900 },
+    month: { reviews: 100, amountCents: 29900 },
+  },
+  pro: {
+    label: "Hiring Pro",
+    productName: "GigGrab Hiring Pro",
+    week: { reviews: 100, amountCents: 24900 },
+    month: { reviews: 400, amountCents: 74900 },
+  },
+  scale: {
+    label: "Hiring Scale",
+    productName: "GigGrab Hiring Scale",
+    week: { reviews: 999999, amountCents: 49900 },
+    month: { reviews: 999999, amountCents: 149900 },
+  },
+};
+
+/**
+ * Idempotent ALTER so employer billing columns land on the prod DB
+ * without an out-of-band migration. Mirrors ensureBillingSchema for
+ * candidates. First call per cold start runs the ALTER; subsequent
+ * calls short-circuit.
+ */
+let employerBillingSchemaEnsured = false;
+export async function ensureEmployerBillingSchema(): Promise<void> {
+  if (employerBillingSchemaEnsured) return;
+  try {
+    await db().execute(sql`
+      ALTER TABLE employers
+        ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT,
+        ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT,
+        ADD COLUMN IF NOT EXISTS billing_tier TEXT,
+        ADD COLUMN IF NOT EXISTS billing_status TEXT,
+        ADD COLUMN IF NOT EXISTS billing_period_end TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS reviews_remaining INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS reviews_reset_at TIMESTAMPTZ
+    `);
+    employerBillingSchemaEnsured = true;
+  } catch (err) {
+    console.warn("[employer-billing/migrate] schema ensure failed", err);
+  }
+}
 
 /**
  * Canonical quota lookup. Reads `matches` directly so we never depend
@@ -351,6 +424,235 @@ export async function billingPortal(
   res.json({ url: portal.url });
 }
 
+// ===========================================================================
+// Employer billing
+// ===========================================================================
+
+export type EmployerQuota = {
+  periodTotal: number;
+  reviewsUsed: number;
+  reviewsRemaining: number;
+  interval: BillingInterval;
+};
+
+/**
+ * Computes effective quota for an employer. Free tier = EMPLOYER_FREE_REVIEWS
+ * (3) reviews, counted via employers.free_reviews_used. Paid tier = the
+ * tier-configured reviews per period, counted via employers.reviews_remaining
+ * (decremented on each candidate-action). The denormalised counter is
+ * trusted on the paid path because there's exactly one write site
+ * (employer.ts:candidateAction); no historic drift like the candidate
+ * side had.
+ */
+export async function getEmployerQuota(e: {
+  billingTier: EmployerBillingTier | null;
+  stripeSubscriptionId: string | null;
+  freeReviewsUsed: number;
+  reviewsRemaining: number | null;
+}): Promise<EmployerQuota> {
+  let periodTotal = EMPLOYER_FREE_REVIEWS;
+  let interval: BillingInterval = "week";
+  if (e.billingTier && e.stripeSubscriptionId) {
+    try {
+      const sub = (await stripeClient().subscriptions.retrieve(
+        e.stripeSubscriptionId,
+      )) as unknown as {
+        items?: { data: Array<{ price?: { recurring?: { interval?: string } } }> };
+      };
+      if (sub.items?.data?.[0]?.price?.recurring?.interval === "month") {
+        interval = "month";
+      }
+    } catch {
+      // ignore; default to week
+    }
+    periodTotal =
+      EMPLOYER_TIER_PLANS[e.billingTier]?.[interval]?.reviews ??
+      EMPLOYER_TIER_PLANS[e.billingTier]?.week?.reviews ??
+      EMPLOYER_FREE_REVIEWS;
+    const reviewsRemaining = Math.max(0, e.reviewsRemaining ?? 0);
+    const reviewsUsed = Math.max(0, periodTotal - reviewsRemaining);
+    return { periodTotal, reviewsUsed, reviewsRemaining, interval };
+  }
+  const reviewsUsed = Math.max(0, e.freeReviewsUsed);
+  const reviewsRemaining = Math.max(0, periodTotal - reviewsUsed);
+  return { periodTotal, reviewsUsed, reviewsRemaining, interval };
+}
+
+/**
+ * GET /api/billing/employer/me — employer billing state for the modal
+ * + banner. Returns plan label, period_total, reviews_used,
+ * reviews_remaining, hasSubscription, periodEnd.
+ */
+export async function billingEmployerMe(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  await ensureEmployerBillingSchema();
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const [e] = await db()
+    .select()
+    .from(employers)
+    .where(eq(employers.firebaseUid, auth.uid))
+    .limit(1);
+  if (!e) {
+    res.json({
+      tier: null,
+      status: null,
+      reviewsRemaining: 0,
+      reviewsUsed: 0,
+      periodTotal: EMPLOYER_FREE_REVIEWS,
+      interval: "week" as BillingInterval,
+      periodEnd: null,
+      hasSubscription: false,
+    });
+    return;
+  }
+  const quota = await getEmployerQuota({
+    billingTier: e.billingTier,
+    stripeSubscriptionId: e.stripeSubscriptionId,
+    freeReviewsUsed: e.freeReviewsUsed,
+    reviewsRemaining: e.reviewsRemaining,
+  });
+  res.json({
+    tier: e.billingTier,
+    status: e.billingStatus,
+    reviewsRemaining: quota.reviewsRemaining,
+    reviewsUsed: quota.reviewsUsed,
+    periodTotal: quota.periodTotal,
+    interval: quota.interval,
+    periodEnd: e.billingPeriodEnd,
+    hasSubscription: !!e.stripeSubscriptionId,
+  });
+}
+
+/**
+ * POST /api/billing/employer/checkout { tier, interval } — creates a
+ * Stripe Checkout Session for the requested employer plan. Uses inline
+ * price_data so no Stripe-side Product/Price pre-creation is needed —
+ * the amounts in EMPLOYER_TIER_PLANS ARE the amounts charged. Returns
+ * { url } for the front-end to redirect to.
+ */
+export async function billingEmployerCheckout(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  await ensureEmployerBillingSchema();
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const body = (req.body ?? {}) as { tier?: string; interval?: string };
+  const tier = body.tier as EmployerBillingTier;
+  const interval: BillingInterval = body.interval === "month" ? "month" : "week";
+  const plan = EMPLOYER_TIER_PLANS[tier];
+  if (!plan) {
+    res.status(400).json({ error: "invalid tier" });
+    return;
+  }
+  const priceConfig = plan[interval];
+
+  const [e] = await db()
+    .select()
+    .from(employers)
+    .where(eq(employers.firebaseUid, auth.uid))
+    .limit(1);
+  if (!e) {
+    res.status(404).json({ error: "no employer row" });
+    return;
+  }
+
+  const stripe = stripeClient();
+  let customerId = e.stripeCustomerId;
+  if (!customerId) {
+    const cust = await stripe.customers.create({
+      email: e.email ?? auth.email ?? undefined,
+      name: e.company ?? undefined,
+      metadata: { entityType: "employer", employerId: e.id },
+    });
+    customerId = cust.id;
+    await db()
+      .update(employers)
+      .set({ stripeCustomerId: customerId })
+      .where(eq(employers.id, e.id));
+  }
+
+  const origin = publicWebOrigin();
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    customer: customerId,
+    allow_promotion_codes: true,
+    success_url: `${origin}/dashboard/hiring?billing=success`,
+    cancel_url: `${origin}/dashboard/hiring?billing=canceled`,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: priceConfig.amountCents,
+          recurring: {
+            interval: interval === "month" ? "month" : "week",
+          },
+          product_data: {
+            name: plan.productName,
+            metadata: { tier, interval },
+          },
+        },
+      },
+    ],
+    metadata: {
+      entityType: "employer",
+      employerId: e.id,
+      tier,
+      interval,
+    },
+    subscription_data: {
+      metadata: {
+        entityType: "employer",
+        employerId: e.id,
+        tier,
+        interval,
+      },
+    },
+  });
+  res.json({ url: session.url });
+}
+
+/**
+ * POST /api/billing/employer/portal — Stripe Customer Portal for
+ * employers to swap plans, update card, or cancel.
+ */
+export async function billingEmployerPortal(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  await ensureEmployerBillingSchema();
+  const auth = await decodeBearer(req);
+  if (!auth) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  const [e] = await db()
+    .select({ stripeCustomerId: employers.stripeCustomerId })
+    .from(employers)
+    .where(eq(employers.firebaseUid, auth.uid))
+    .limit(1);
+  if (!e?.stripeCustomerId) {
+    res.status(409).json({ error: "no stripe customer yet" });
+    return;
+  }
+  const stripe = stripeClient();
+  const portal = await stripe.billingPortal.sessions.create({
+    customer: e.stripeCustomerId,
+    return_url: `${publicWebOrigin()}/dashboard/hiring`,
+  });
+  res.json({ url: portal.url });
+}
+
 /**
  * POST /api/stripe/webhook — Stripe-signed event handler.
  * Required body parsing: RAW. Firebase Functions Gen2 onRequest gives
@@ -361,6 +663,7 @@ export async function stripeWebhook(
   res: Response,
 ): Promise<void> {
   await ensureBillingSchema();
+  await ensureEmployerBillingSchema();
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
     console.error("[stripe/webhook] STRIPE_WEBHOOK_SECRET not set");
@@ -388,12 +691,8 @@ export async function stripeWebhook(
       case "checkout.session.completed":
       case "checkout.session.async_payment_succeeded": {
         const s = event.data.object as StripeCheckoutSession;
-        const candidateId = (s.metadata?.candidateId ?? "") as string;
-        const tier = (s.metadata?.tier ?? "") as CandidateBillingTier;
+        const entityType = (s.metadata?.entityType ?? "candidate") as string;
         const interval = ((s.metadata?.interval ?? "week") as BillingInterval);
-        if (!candidateId || !TIER_PLANS[tier]) break;
-        const priceConfig =
-          TIER_PLANS[tier][interval] ?? TIER_PLANS[tier].week;
         const subId = (s.subscription as string) ?? null;
         let periodEnd: Date | null = null;
         if (subId) {
@@ -402,6 +701,38 @@ export async function stripeWebhook(
           )) as unknown as StripeSubscription;
           periodEnd = new Date((sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? 0) * 1000);
         }
+
+        if (entityType === "employer") {
+          const employerId = (s.metadata?.employerId ?? "") as string;
+          const tier = (s.metadata?.tier ?? "") as EmployerBillingTier;
+          if (!employerId || !EMPLOYER_TIER_PLANS[tier]) break;
+          const priceConfig =
+            EMPLOYER_TIER_PLANS[tier][interval] ??
+            EMPLOYER_TIER_PLANS[tier].week;
+          await db()
+            .update(employers)
+            .set({
+              stripeCustomerId: (s.customer as string) ?? undefined,
+              stripeSubscriptionId: subId ?? undefined,
+              billingTier: tier,
+              billingStatus: "active",
+              billingPeriodEnd: periodEnd,
+              reviewsRemaining: priceConfig.reviews,
+              reviewsResetAt: new Date(),
+            })
+            .where(eq(employers.id, employerId));
+          console.log(
+            `[stripe/webhook] checkout completed employer=${employerId} tier=${tier} interval=${interval} reviews=${priceConfig.reviews}`,
+          );
+          break;
+        }
+
+        // Candidate path (default for legacy sessions without entityType).
+        const candidateId = (s.metadata?.candidateId ?? "") as string;
+        const tier = (s.metadata?.tier ?? "") as CandidateBillingTier;
+        if (!candidateId || !TIER_PLANS[tier]) break;
+        const priceConfig =
+          TIER_PLANS[tier][interval] ?? TIER_PLANS[tier].week;
         await db()
           .update(candidates)
           .set({
@@ -423,60 +754,117 @@ export async function stripeWebhook(
         const inv = event.data.object as StripeInvoice;
         const subId = inv.subscription as string | null;
         if (!subId) break;
+
+        // Candidate sub renewal?
         const [c] = await db()
           .select({ id: candidates.id, billingTier: candidates.billingTier })
           .from(candidates)
           .where(eq(candidates.stripeSubscriptionId, subId))
           .limit(1);
-        if (!c?.billingTier) break;
-        const tierConfig = TIER_PLANS[c.billingTier];
-        if (!tierConfig) break;
-        const sub = (await stripeClient().subscriptions.retrieve(
-          subId,
-        )) as unknown as StripeSubscription;
-        const periodEnd = new Date((sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? 0) * 1000);
-        // Pick interval based on the subscription's recurring price.
-        // Lookup the first item's price ID → match to TIER_PLANS.
-        const items = (sub as unknown as { items?: { data: Array<{ price?: { id?: string; recurring?: { interval?: string } } }> } }).items;
-        const intervalFromSub = items?.data?.[0]?.price?.recurring?.interval;
-        const interval: BillingInterval =
-          intervalFromSub === "month" ? "month" : "week";
-        const priceConfig = tierConfig[interval] ?? tierConfig.week;
-        await db()
-          .update(candidates)
-          .set({
-            billingStatus: "active",
-            billingPeriodEnd: periodEnd,
-            applicationsRemaining: priceConfig.applications,
-            applicationsResetAt: new Date(),
-          })
-          .where(eq(candidates.id, c.id));
-        console.log(
-          `[stripe/webhook] invoice.paid candidate=${c.id} interval=${interval} reset apps=${priceConfig.applications}`,
-        );
+        if (c?.billingTier) {
+          const tierConfig = TIER_PLANS[c.billingTier];
+          if (!tierConfig) break;
+          const sub = (await stripeClient().subscriptions.retrieve(
+            subId,
+          )) as unknown as StripeSubscription;
+          const periodEnd = new Date((sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? 0) * 1000);
+          const items = (sub as unknown as { items?: { data: Array<{ price?: { id?: string; recurring?: { interval?: string } } }> } }).items;
+          const intervalFromSub = items?.data?.[0]?.price?.recurring?.interval;
+          const interval: BillingInterval =
+            intervalFromSub === "month" ? "month" : "week";
+          const priceConfig = tierConfig[interval] ?? tierConfig.week;
+          await db()
+            .update(candidates)
+            .set({
+              billingStatus: "active",
+              billingPeriodEnd: periodEnd,
+              applicationsRemaining: priceConfig.applications,
+              applicationsResetAt: new Date(),
+            })
+            .where(eq(candidates.id, c.id));
+          console.log(
+            `[stripe/webhook] invoice.paid candidate=${c.id} interval=${interval} reset apps=${priceConfig.applications}`,
+          );
+          break;
+        }
+
+        // Employer sub renewal?
+        const [emp] = await db()
+          .select({ id: employers.id, billingTier: employers.billingTier })
+          .from(employers)
+          .where(eq(employers.stripeSubscriptionId, subId))
+          .limit(1);
+        if (emp?.billingTier) {
+          const tierConfig = EMPLOYER_TIER_PLANS[emp.billingTier];
+          if (!tierConfig) break;
+          const sub = (await stripeClient().subscriptions.retrieve(
+            subId,
+          )) as unknown as StripeSubscription;
+          const periodEnd = new Date((sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? 0) * 1000);
+          const items = (sub as unknown as { items?: { data: Array<{ price?: { id?: string; recurring?: { interval?: string } } }> } }).items;
+          const intervalFromSub = items?.data?.[0]?.price?.recurring?.interval;
+          const interval: BillingInterval =
+            intervalFromSub === "month" ? "month" : "week";
+          const priceConfig = tierConfig[interval] ?? tierConfig.week;
+          await db()
+            .update(employers)
+            .set({
+              billingStatus: "active",
+              billingPeriodEnd: periodEnd,
+              reviewsRemaining: priceConfig.reviews,
+              reviewsResetAt: new Date(),
+            })
+            .where(eq(employers.id, emp.id));
+          console.log(
+            `[stripe/webhook] invoice.paid employer=${emp.id} interval=${interval} reset reviews=${priceConfig.reviews}`,
+          );
+        }
         break;
       }
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const sub = event.data.object as StripeSubscription;
+        const periodEnd =
+          (sub.current_period_end ??
+            sub.items?.data?.[0]?.current_period_end ??
+            0)
+            ? new Date(
+                (sub.current_period_end ??
+                  sub.items?.data?.[0]?.current_period_end ??
+                  0) * 1000,
+              )
+            : null;
+
         const [c] = await db()
           .select({ id: candidates.id })
           .from(candidates)
           .where(eq(candidates.stripeSubscriptionId, sub.id))
           .limit(1);
-        if (!c) break;
-        await db()
-          .update(candidates)
-          .set({
-            billingStatus: sub.status,
-            billingPeriodEnd: (sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? 0)
-              ? new Date((sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? 0) * 1000)
-              : null,
-          })
-          .where(eq(candidates.id, c.id));
-        console.log(
-          `[stripe/webhook] sub ${event.type} candidate=${c.id} status=${sub.status}`,
-        );
+        if (c) {
+          await db()
+            .update(candidates)
+            .set({ billingStatus: sub.status, billingPeriodEnd: periodEnd })
+            .where(eq(candidates.id, c.id));
+          console.log(
+            `[stripe/webhook] sub ${event.type} candidate=${c.id} status=${sub.status}`,
+          );
+          break;
+        }
+
+        const [emp] = await db()
+          .select({ id: employers.id })
+          .from(employers)
+          .where(eq(employers.stripeSubscriptionId, sub.id))
+          .limit(1);
+        if (emp) {
+          await db()
+            .update(employers)
+            .set({ billingStatus: sub.status, billingPeriodEnd: periodEnd })
+            .where(eq(employers.id, emp.id));
+          console.log(
+            `[stripe/webhook] sub ${event.type} employer=${emp.id} status=${sub.status}`,
+          );
+        }
         break;
       }
       default:

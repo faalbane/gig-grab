@@ -51,6 +51,9 @@ import {
   billingMe,
   billingCheckout,
   billingPortal,
+  billingEmployerMe,
+  billingEmployerCheckout,
+  billingEmployerPortal,
   stripeWebhook,
 } from "./billing";
 import {
@@ -246,6 +249,18 @@ export const api = onRequest(
       }
       if (method === "POST" && path === "/billing/portal") {
         await billingPortal(req, res);
+        return;
+      }
+      if (method === "GET" && path === "/billing/employer/me") {
+        await billingEmployerMe(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/billing/employer/checkout") {
+        await billingEmployerCheckout(req, res);
+        return;
+      }
+      if (method === "POST" && path === "/billing/employer/portal") {
+        await billingEmployerPortal(req, res);
         return;
       }
       if (method === "POST" && path === "/stripe/webhook") {

@@ -247,8 +247,20 @@ export const employers = pgTable("employers", {
   placementInquiryAt: timestamp("placement_inquiry_at", { withTimezone: true }),
   placementInquiryNote: text("placement_inquiry_note"),
   placementInquiryPhone: text("placement_inquiry_phone"),
+  // Employer Stripe subscription state. Mirrors the candidate billing
+  // columns so the same Stripe webhook handler can route customer +
+  // subscription events to whichever row matches the customer ID.
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  billingTier: text("billing_tier").$type<EmployerBillingTier>(),
+  billingStatus: text("billing_status"),
+  billingPeriodEnd: timestamp("billing_period_end", { withTimezone: true }),
+  reviewsRemaining: integer("reviews_remaining").notNull().default(0),
+  reviewsResetAt: timestamp("reviews_reset_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export type EmployerBillingTier = "lite" | "pro" | "scale";
 
 export const atsConnections = pgTable("ats_connections", {
   employerId: text("employer_id")
