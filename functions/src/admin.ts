@@ -671,9 +671,9 @@ export async function adminInspectSession(
         .orderBy(sql`${jobs.embedding} <=> ${vecLit}::vector`)
         .limit(n);
     }
-    let rows = await fetchN(true, 5);
+    let rows = await fetchN(true, 10);
     if (rows.length === 0 && cityLike) {
-      rows = await fetchN(false, 5);
+      rows = await fetchN(false, 10);
     }
     topMatches = rows.map((r) => ({
       ...r,
