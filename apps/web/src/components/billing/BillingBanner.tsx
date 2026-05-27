@@ -35,9 +35,17 @@ const TIER_LABEL: Record<string, string> = {
 export function BillingBanner({
   variant = "compact",
   showSuccessFromQuery = false,
+  onUpgrade,
 }: {
   variant?: "compact" | "card";
   showSuccessFromQuery?: boolean;
+  /**
+   * Optional click handler for the Upgrade / Pick-a-plan CTA. When
+   * provided (e.g. by /dashboard), the button opens the PaywallModal
+   * in place instead of routing to /pricing. When omitted (e.g.
+   * /settings), the button falls back to a Link to /pricing.
+   */
+  onUpgrade?: () => void;
 }) {
   const user = useAuthUser();
   const [me, setMe] = useState<BillingMe | null>(null);
@@ -158,13 +166,24 @@ export function BillingBanner({
               : `${me.applicationsUsed} of ${me.periodTotal} free applications used.`}
           </p>
         </div>
-        <Link
-          href="/pricing"
-          className="inline-flex h-9 items-center rounded-lg px-3 text-xs font-bold text-white"
-          style={{ background: "var(--gg-green-dark)" }}
-        >
-          {empty ? "Pick a plan →" : "Upgrade"}
-        </Link>
+        {onUpgrade ? (
+          <button
+            type="button"
+            onClick={onUpgrade}
+            className="inline-flex h-9 items-center rounded-lg px-3 text-xs font-bold text-white"
+            style={{ background: "var(--gg-green-dark)" }}
+          >
+            {empty ? "Pick a plan →" : "Upgrade"}
+          </button>
+        ) : (
+          <Link
+            href="/pricing"
+            className="inline-flex h-9 items-center rounded-lg px-3 text-xs font-bold text-white"
+            style={{ background: "var(--gg-green-dark)" }}
+          >
+            {empty ? "Pick a plan →" : "Upgrade"}
+          </Link>
+        )}
       </div>
     </Container>
   );

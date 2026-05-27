@@ -58,6 +58,15 @@ function DashboardPageInner() {
   const [err, setErr] = useState<string | null>(null);
   const [showPaywall, setShowPaywall] = useState(false);
 
+  // Quota-exceeded from any JobCard fires a `gg:open-paywall` event.
+  useEffect(() => {
+    function handler() {
+      setShowPaywall(true);
+    }
+    window.addEventListener("gg:open-paywall", handler);
+    return () => window.removeEventListener("gg:open-paywall", handler);
+  }, []);
+
   useEffect(() => {
     if (user === null) return; // pending
     if (user === false) {
@@ -121,7 +130,18 @@ function DashboardPageInner() {
         <div className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
           <ModeToggle active="worker" />
           <div className="mb-4">
-            <BillingBanner variant="compact" showSuccessFromQuery />
+            <BillingBanner
+              variant="compact"
+              showSuccessFromQuery
+              onUpgrade={() => {
+                // Clear the "seen once" flag so a deliberate Upgrade
+                // click always re-opens the modal even after dismiss.
+                if (typeof window !== "undefined") {
+                  localStorage.removeItem(PAYWALL_SEEN_KEY);
+                }
+                setShowPaywall(true);
+              }}
+            />
           </div>
           <div className="mb-6">
             <p
@@ -989,11 +1009,15 @@ function JobCard({
       setShowJustApplied(true);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Couldn't apply right now.";
-      // Quota gate: backend returns 402 quota_exceeded → bounce to
-      // pricing so the user can upgrade.
+      // Quota gate: backend returns 402 quota_exceeded → open the
+      // paywall modal in place instead of bouncing to /pricing.
+      // Event bus avoids prop-drilling through JobsTab → JobCard.
       if (msg === "quota_exceeded" || msg.includes("quota_exceeded")) {
         track("apply_blocked_quota", { jobId: job.id });
-        window.location.href = "/pricing?billing=quota_exceeded";
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("gg.paywallSeen");
+          window.dispatchEvent(new CustomEvent("gg:open-paywall"));
+        }
         return;
       }
       setErr(msg);
