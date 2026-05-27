@@ -37,8 +37,6 @@ export function Footer() {
           links={[
             ["Privacy", "/legal/privacy"],
             ["Terms", "/legal/terms"],
-            ["Cookies", "/legal/cookies"],
-            ["Modern Slavery", "/legal/modern-slavery"],
           ]}
         />
       </div>
