@@ -128,6 +128,34 @@ async def fetch_profile_for_session(session_id: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+async def fetch_preferred_name_for_session(session_id: str) -> Optional[str]:
+    """Returns the candidate's preferred_name set on /intake/start when
+    the form collected a name. Used to greet outbound calls by name on
+    the first call (before any profile_card exists). None if unset.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                """
+                SELECT c.preferred_name AS n
+                FROM sessions s
+                JOIN candidates c ON c.id = s.candidate_id
+                WHERE s.id = $1
+                """,
+                session_id,
+            )
+        except Exception:
+            # Column may not exist yet on a pre-migration DB.
+            return None
+        if not row:
+            return None
+        v = row["n"]
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        return None
+
+
 async def store_match_signals(
     *, candidate_id: str, signals: dict
 ) -> None:

@@ -99,6 +99,11 @@ export const candidates = pgTable(
     billingPeriodEnd: timestamp("billing_period_end", { withTimezone: true }),
     applicationsRemaining: integer("applications_remaining").notNull().default(0),
     applicationsResetAt: timestamp("applications_reset_at", { withTimezone: true }),
+    // First-name the user typed into the /start or callback form. Used
+    // to greet by name on the very first outbound call (before any
+    // profile_card exists). Soft signal — confirmed verbally during
+    // intake. Idempotent ALTER lives in functions/src/intake.ts.
+    preferredName: text("preferred_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     lastCallAt: timestamp("last_call_at", { withTimezone: true }),
   },

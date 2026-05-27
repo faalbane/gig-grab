@@ -631,6 +631,11 @@ class AgentConfig:
     # before the pipeline starts. Lets the kickoff branch into a "welcome
     # back" path for returning callers.
     existing_profile: Optional[dict] = None
+    # Name the candidate typed into the /start form (or hotline callback
+    # modal) on this very call. Distinct from existing_profile.name —
+    # this fires on the FIRST call when no profile_card yet exists. Lets
+    # outbound kickoff greet by name + ask to confirm.
+    preferred_name: Optional[str] = None
 
 
 async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig):
@@ -867,15 +872,34 @@ async def build_pipeline(transport: FastAPIWebsocketTransport, cfg: AgentConfig)
             # Outbound call from /start — caller already ticked consent on
             # the web form. We still announce recording on the call itself
             # because consent must be informed AND verifiable in audio.
-            kickoff = (
-                f"The call just connected. The candidate already picked "
-                f"'{cfg.language}' as their call language — stay in "
-                f"{cfg.language} unless they switch first. Greet them in "
-                f"TWO short sentences. First sentence: 'Hi, this is "
-                f"GigGrab's AI recruiter — this call is recorded so we can "
-                f"build your CV.' Second sentence: ask their name. Nothing "
-                f"else."
-            )
+            # If the form captured a name, greet by it + ask to confirm
+            # (instead of asking from cold). Matches user-requested UX:
+            # "Hi Tom, this is Sarah from GigGrab — this call is recorded
+            #  so we can build your CV. Can you please confirm your name?"
+            pref_name = _sanitize_profile_field(cfg.preferred_name or "", 60)
+            if pref_name:
+                kickoff = (
+                    f"The call just connected. The candidate typed their "
+                    f"name '{pref_name}' into the web form and picked "
+                    f"'{cfg.language}' as their call language — stay in "
+                    f"{cfg.language} unless they switch first. Greet them "
+                    f"in TWO short sentences using their name verbatim. "
+                    f"First sentence: 'Hi {pref_name}, this is Sarah from "
+                    f"GigGrab — this call is recorded so we can build "
+                    f"your CV.' Second sentence: 'Just to confirm — am I "
+                    f"speaking with {pref_name}?' Nothing else. If they "
+                    f"correct you, apologise once and use their version."
+                )
+            else:
+                kickoff = (
+                    f"The call just connected. The candidate already picked "
+                    f"'{cfg.language}' as their call language — stay in "
+                    f"{cfg.language} unless they switch first. Greet them in "
+                    f"TWO short sentences. First sentence: 'Hi, this is "
+                    f"GigGrab's AI recruiter — this call is recorded so we can "
+                    f"build your CV.' Second sentence: ask their name. Nothing "
+                    f"else."
+                )
         context.add_message({"role": "user", "content": kickoff})
         await task.queue_frames([LLMRunFrame()])
 

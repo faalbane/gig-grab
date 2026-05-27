@@ -62,6 +62,7 @@ export function CallbackModal({ open, onClose, mode }: Props) {
           phone: e164,
           language: language.code,
           audience: mode,
+          name: name.trim() || undefined,
         }),
       });
       const data = await res.json();

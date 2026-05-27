@@ -3,7 +3,7 @@ import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
 import { db, candidates, sessions } from "@gig-grab/db";
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import {
   isAllowedLanguage,
   isDialableE164,
@@ -16,6 +16,7 @@ type IntakeBody = {
   phone?: string;
   language?: string;
   audience?: "worker" | "employer";
+  name?: string;
 };
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -51,7 +52,13 @@ function parse(body: IntakeBody) {
     );
   }
 
-  return { phone, language, audience };
+  // Optional name from the callback / start form. Soft validation —
+  // strip control chars + cap. Never trusted to be accurate; the agent
+  // confirms on the call.
+  const rawName = typeof body.name === "string" ? body.name : "";
+  const name = rawName.replace(/[\r\n\t\0]/g, " ").trim().slice(0, 60);
+
+  return { phone, language, audience, name };
 }
 
 // Only block re-triggers while there's a call IN FLIGHT to this number.
@@ -80,13 +87,46 @@ async function checkPhoneRateLimit(phone: string): Promise<boolean> {
   return recent.length === 0;
 }
 
-async function upsertCandidate(phone: string, language: string) {
+async function ensurePreferredNameColumn(): Promise<void> {
+  // Idempotent ALTER so deploys don't need an out-of-band migration.
+  // Pattern reused from ensureBillingSchema in billing.ts.
+  try {
+    await db().execute(
+      sql`ALTER TABLE candidates ADD COLUMN IF NOT EXISTS preferred_name TEXT`,
+    );
+  } catch (err) {
+    console.warn("[intake/migrate] preferred_name column add failed", err);
+  }
+}
+
+async function upsertCandidate(phone: string, language: string, name: string) {
+  await ensurePreferredNameColumn();
+  // Preferred name is best-effort. Persist on insert; on update only
+  // overwrite when the existing row has no preferred_name yet (don't
+  // clobber what Sarah captured + confirmed verbally on a prior call).
   const [row] = await db()
     .insert(candidates)
-    .values({ id: randomUUID(), phone, language, applicationsRemaining: 10 })
+    .values({
+      id: randomUUID(),
+      phone,
+      language,
+      applicationsRemaining: 10,
+      ...(name ? { preferredName: name } : {}),
+    })
     .onConflictDoUpdate({
       target: candidates.phone,
-      set: { language, lastCallAt: new Date() },
+      set: {
+        language,
+        lastCallAt: new Date(),
+        // COALESCE so a form-supplied name only fills in when the row
+        // doesn't already have one. Don't overwrite a name Sarah
+        // captured + confirmed verbally on an earlier call.
+        ...(name
+          ? {
+              preferredName: sql`COALESCE(${candidates.preferredName}, ${name})`,
+            }
+          : {}),
+      },
     })
     .returning();
   return row;
@@ -131,7 +171,11 @@ export async function intakeStart(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const candidate = await upsertCandidate(parsed.phone, parsed.language);
+  const candidate = await upsertCandidate(
+    parsed.phone,
+    parsed.language,
+    parsed.name,
+  );
 
   const sessionId = randomUUID();
   await db().insert(sessions).values({

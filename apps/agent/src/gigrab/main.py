@@ -100,12 +100,19 @@ async def _web_ws_handler(websocket: WebSocket):
     except Exception:
         logger.exception("web-ws failed to look up existing profile (non-fatal)")
 
+    preferred_name = None
+    try:
+        preferred_name = await db.fetch_preferred_name_for_session(session_id)
+    except Exception:
+        logger.exception("web-ws failed to look up preferred_name (non-fatal)")
+
     cfg = AgentConfig(
         session_id=session_id,
         language=language,
         audience=audience,
         surface="web",
         existing_profile=existing_profile,
+        preferred_name=preferred_name,
     )
     logger.info(
         f"web-ws session start: session={session_id} lang={language} "
@@ -176,12 +183,19 @@ async def _ws_handler(websocket: WebSocket):
     except Exception:
         logger.exception("ws failed to look up existing profile (non-fatal)")
 
+    preferred_name = None
+    try:
+        preferred_name = await db.fetch_preferred_name_for_session(session_id)
+    except Exception:
+        logger.exception("ws failed to look up preferred_name (non-fatal)")
+
     cfg = AgentConfig(
         session_id=session_id,
         language=language,
         audience=audience,
         inbound=inbound,
         existing_profile=existing_profile,
+        preferred_name=preferred_name,
     )
     logger.info(
         f"ws session start: session={session_id} stream={stream_sid} lang={language} "
