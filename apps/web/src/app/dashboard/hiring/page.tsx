@@ -6,6 +6,10 @@ import { Header } from "@/components/marketing/Header";
 import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
 import { track } from "@/components/PostHogProvider";
+import {
+  EmployerWelcomeModal,
+  EMPLOYER_WELCOME_SEEN_KEY,
+} from "@/components/billing/EmployerWelcomeModal";
 
 type CandidateProbe = { profile: unknown | null };
 
@@ -188,6 +192,19 @@ export default function EmployerDashboardPage() {
   }
 
   const [paywallOpen, setPaywallOpen] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+
+  // First-time employer pop. Fires once per browser when the employer
+  // lands on the hiring dashboard and hasn't dismissed it yet, and
+  // hasn't already requested a placement callback. Mirrors the
+  // candidate-side PaywallModal trigger.
+  useEffect(() => {
+    if (!me?.paywall) return;
+    if (me.paywall.placementInquiryAt) return;
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem(EMPLOYER_WELCOME_SEEN_KEY) === "1") return;
+    setWelcomeOpen(true);
+  }, [me?.paywall]);
 
   async function candidateAction(
     jobId: string,
@@ -408,6 +425,12 @@ export default function EmployerDashboardPage() {
           )}
         </div>
       </main>
+      <EmployerWelcomeModal
+        open={welcomeOpen}
+        freeReviewsLimit={me?.paywall?.freeReviewsLimit ?? 3}
+        onClose={() => setWelcomeOpen(false)}
+        onTalkToUs={() => setPaywallOpen(true)}
+      />
       <CallbackModal
         open={paywallOpen}
         onClose={() => setPaywallOpen(false)}
