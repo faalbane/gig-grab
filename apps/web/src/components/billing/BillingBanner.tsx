@@ -54,9 +54,28 @@ export function BillingBanner({
 
   useEffect(() => {
     if (user === null || user === false) return;
-    fetchWithAuth<BillingMe>("/api/billing/me")
-      .then(setMe)
-      .catch(() => setMe(null));
+    let cancelled = false;
+    function refetch() {
+      fetchWithAuth<BillingMe>("/api/billing/me")
+        .then((d) => {
+          if (!cancelled) setMe(d);
+        })
+        .catch(() => {
+          if (!cancelled) setMe(null);
+        });
+    }
+    refetch();
+    // Apply / quota changes elsewhere on the page fire this event so
+    // the counter ("N of M applications used") updates without a
+    // hard refresh.
+    function onChange() {
+      refetch();
+    }
+    window.addEventListener("gg:billing-changed", onChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("gg:billing-changed", onChange);
+    };
   }, [user]);
 
   const successFlag =

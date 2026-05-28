@@ -1021,6 +1021,12 @@ function JobCard({
       });
       onApplied(job.id);
       setShowJustApplied(true);
+      // Tell the BillingBanner to refetch /api/billing/me so the
+      // "N of M applications used" counter reflects this apply
+      // immediately, without a hard refresh.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gg:billing-changed"));
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Couldn't apply right now.";
       // Quota gate: backend returns 402 quota_exceeded → open the
