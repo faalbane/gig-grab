@@ -450,6 +450,12 @@ export async function accountProfileUpdate(
 export async function accountMe(req: Request, res: Response): Promise<void> {
   const { ensureProfileSchema } = await import("./profile");
   await ensureProfileSchema();
+  // candidates.preferred_name lives in ensureBillingSchema's ALTER set —
+  // SELECT * on candidates expects the column. Without this, /api/
+  // account/me returns 500 on a freshly-deployed instance that hasn't
+  // touched /api/billing/me yet.
+  const { ensureBillingSchema } = await import("./billing");
+  await ensureBillingSchema();
   const auth = await decodeBearer(req);
   if (!auth) {
     res.status(401).json({ error: "unauthenticated" });

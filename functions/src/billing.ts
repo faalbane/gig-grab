@@ -257,7 +257,8 @@ export async function ensureBillingSchema(): Promise<void> {
         ADD COLUMN IF NOT EXISTS billing_status TEXT,
         ADD COLUMN IF NOT EXISTS billing_period_end TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS applications_remaining INTEGER NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS applications_reset_at TIMESTAMPTZ
+        ADD COLUMN IF NOT EXISTS applications_reset_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS preferred_name TEXT
     `);
     billingSchemaEnsured = true;
   } catch (err) {
