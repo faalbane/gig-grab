@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Header } from "@/components/marketing/Header";
 import { EditableCvCard } from "@/components/profile/EditableCvCard";
-import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { BillingBanner } from "@/components/billing/BillingBanner";
 import { PaywallModal, PAYWALL_SEEN_KEY } from "@/components/billing/PaywallModal";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
@@ -78,6 +77,22 @@ function DashboardPageInner() {
       try {
         const data = await fetchWithAuth<AccountMe>("/api/account/me");
         if (!cancelled) setMe(data);
+        // Wrong-dashboard redirect. Employer-only users (no candidate
+        // profile but have an employer row) belong on /dashboard/hiring.
+        // Mixed accounts (both rows) stay on whichever URL they hit.
+        if (!cancelled && !data.profile) {
+          try {
+            const emp = await fetchWithAuth<{ employer: unknown | null }>(
+              "/api/account/employer/me",
+            );
+            if (!cancelled && emp.employer) {
+              window.location.replace("/dashboard/hiring");
+              return;
+            }
+          } catch {
+            // Non-fatal — stay here.
+          }
+        }
       } catch (e) {
         if (!cancelled) {
           setErr(e instanceof Error ? e.message : "Could not load your account.");
@@ -128,7 +143,6 @@ function DashboardPageInner() {
         }}
       >
         <div className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
-          <ModeToggle active="worker" />
           <div className="mb-4">
             <BillingBanner
               variant="compact"

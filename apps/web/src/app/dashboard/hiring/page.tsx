@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/marketing/Header";
-import { ModeToggle } from "@/components/dashboard/ModeToggle";
 import { useAuthUser, fetchWithAuth } from "@/lib/firebase";
 import { track } from "@/components/PostHogProvider";
 import {
@@ -92,15 +91,22 @@ export default function EmployerDashboardPage() {
   const [reranking, setReranking] = useState<string | null>(null);
   const [panelView, setPanelView] = useState<Record<string, View>>({});
 
-  // Probe whether the signed-in user ALSO has a candidate profile.
-  // Drives the ModeToggle visibility — pure employers don't need the
-  // "Looking for work" pill cluttering their hiring view.
+  // Wrong-dashboard redirect. Worker-only users (have a candidate
+  // profile but no employer row) get bounced to /dashboard. Employer-
+  // only stay here. Dual-account users (rare; legacy / testing) keep
+  // the URL they navigated to — no forced redirect either way.
+  // me.employer === null means they have no employer row yet.
   useEffect(() => {
     if (user === null || user === false) return;
+    if (me === null) return;
     let cancelled = false;
     fetchWithAuth<CandidateProbe>("/api/account/me")
       .then((d) => {
-        if (!cancelled) setHasWorkerProfile(!!d.profile);
+        if (cancelled) return;
+        setHasWorkerProfile(!!d.profile);
+        if (d.profile && !me.employer) {
+          window.location.replace("/dashboard");
+        }
       })
       .catch(() => {
         if (!cancelled) setHasWorkerProfile(false);
@@ -108,7 +114,7 @@ export default function EmployerDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, me]);
 
   async function refreshJobs() {
     try {
@@ -293,11 +299,6 @@ export default function EmployerDashboardPage() {
         }}
       >
         <div className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
-          <ModeToggle
-            active="hiring"
-            showWorkerPill={hasWorkerProfile === true}
-            showHiringPill={true}
-          />
           {err && (
             <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
               {err}
