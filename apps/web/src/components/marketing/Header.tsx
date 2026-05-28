@@ -30,13 +30,19 @@ export function Header({ compact = false }: HeaderProps) {
     <header className="border-b border-gray-100 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
         <Logo />
-        <nav className="hidden gap-7 text-sm text-gray-700 sm:flex">
-          {NAV_LINKS.map(([label, href]) => (
-            <Link key={href} href={href} className="hover:text-gray-900">
-              {label}
-            </Link>
-          ))}
-        </nav>
+        {/* Marketing nav hides for signed-in users — once you're inside
+            the product the For workers / For employers / Pricing /
+            About links are just clutter. UserMenu in the corner handles
+            in-app nav (Dashboard, Settings, Sign out). */}
+        {!isSignedIn && (
+          <nav className="hidden gap-7 text-sm text-gray-700 sm:flex">
+            {NAV_LINKS.map(([label, href]) => (
+              <Link key={href} href={href} className="hover:text-gray-900">
+                {label}
+              </Link>
+            ))}
+          </nav>
+        )}
         <div className="flex items-center gap-3">
           {!compact && <UserMenu />}
           <button
@@ -71,17 +77,18 @@ export function Header({ compact = false }: HeaderProps) {
       {mobileOpen && (
         <nav className="border-t border-gray-100 bg-white px-6 py-3 sm:hidden">
           <ul className="flex flex-col gap-1">
-            {NAV_LINKS.map(([label, href]) => (
-              <li key={href}>
-                <Link
-                  href={href}
-                  onClick={() => setMobileOpen(false)}
-                  className="block rounded-md px-2 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  {label}
-                </Link>
-              </li>
-            ))}
+            {!isSignedIn &&
+              NAV_LINKS.map(([label, href]) => (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    onClick={() => setMobileOpen(false)}
+                    className="block rounded-md px-2 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    {label}
+                  </Link>
+                </li>
+              ))}
             {isSignedIn ? (
               <>
                 <li>
