@@ -125,26 +125,50 @@ export const EMPLOYER_TIER_PLANS: Record<
   EmployerBillingTier,
   Record<
     BillingInterval,
-    { reviews: number; amountCents: number }
+    { priceId: string; reviews: number; amountCents: number }
   > & { label: string; productName: string }
 > = {
   lite: {
     label: "Hiring Lite",
     productName: "GigGrab Hiring Lite",
-    week: { reviews: 25, amountCents: 9900 },
-    month: { reviews: 100, amountCents: 29900 },
+    week: {
+      priceId: "price_1TbsTNCX4iU4nm42Bj0BOzxX",
+      reviews: 25,
+      amountCents: 9900,
+    },
+    month: {
+      priceId: "price_1TbsTNCX4iU4nm42Jz0EV4bI",
+      reviews: 100,
+      amountCents: 29900,
+    },
   },
   pro: {
     label: "Hiring Pro",
     productName: "GigGrab Hiring Pro",
-    week: { reviews: 100, amountCents: 24900 },
-    month: { reviews: 400, amountCents: 74900 },
+    week: {
+      priceId: "price_1TbsTOCX4iU4nm42tXgoufza",
+      reviews: 100,
+      amountCents: 24900,
+    },
+    month: {
+      priceId: "price_1TbsTPCX4iU4nm42GTSYdr4K",
+      reviews: 400,
+      amountCents: 74900,
+    },
   },
   scale: {
     label: "Hiring Scale",
     productName: "GigGrab Hiring Scale",
-    week: { reviews: 999999, amountCents: 49900 },
-    month: { reviews: 999999, amountCents: 149900 },
+    week: {
+      priceId: "price_1TbsTQCX4iU4nm4217wL2nK7",
+      reviews: 999999,
+      amountCents: 49900,
+    },
+    month: {
+      priceId: "price_1TbsTQCX4iU4nm42Ml1hrYsS",
+      reviews: 999999,
+      amountCents: 149900,
+    },
   },
 };
 
@@ -532,10 +556,13 @@ export async function billingEmployerMe(
 
 /**
  * POST /api/billing/employer/checkout { tier, interval } — creates a
- * Stripe Checkout Session for the requested employer plan. Uses inline
- * price_data so no Stripe-side Product/Price pre-creation is needed —
- * the amounts in EMPLOYER_TIER_PLANS ARE the amounts charged. Returns
- * { url } for the front-end to redirect to.
+ * Stripe Checkout Session for the requested employer plan. References
+ * pre-created Stripe Prices via EMPLOYER_TIER_PLANS.{tier}.{interval}
+ * .priceId — so the plans show up in the Stripe Product catalog and
+ * support promotion codes / pricing tables / coupons natively. To
+ * recreate the IDs (or generate a fresh set in another Stripe account)
+ * run scripts/create-employer-stripe-prices.ts — it upserts via
+ * lookup_key so re-runs are safe.
  */
 export async function billingEmployerCheckout(
   req: Request,
@@ -592,17 +619,7 @@ export async function billingEmployerCheckout(
     line_items: [
       {
         quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: priceConfig.amountCents,
-          recurring: {
-            interval: interval === "month" ? "month" : "week",
-          },
-          product_data: {
-            name: plan.productName,
-            metadata: { tier, interval },
-          },
-        },
+        price: priceConfig.priceId,
       },
     ],
     metadata: {
