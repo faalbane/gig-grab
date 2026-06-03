@@ -91,22 +91,24 @@ export default function EmployerDashboardPage() {
   const [reranking, setReranking] = useState<string | null>(null);
   const [panelView, setPanelView] = useState<Record<string, View>>({});
 
-  // Wrong-dashboard redirect. Worker-only users (have a candidate
-  // profile but no employer row) get bounced to /dashboard. Employer-
-  // only stay here. Dual-account users (rare; legacy / testing) keep
-  // the URL they navigated to — no forced redirect either way.
-  // me.employer === null means they have no employer row yet.
+  // Probe for dual-account hint. We used to auto-redirect to
+  // /dashboard if the user looked worker-only — but resolveEmployer
+  // on the backend has known false negatives for newly-onboarded
+  // employers (Google sign-in path doesn't link to the employer row
+  // that extractEmployerJob created with a placeholder
+  // pending-xxx@gig-grab.local email). That false negative was
+  // bouncing real employers to the worker dashboard during their
+  // first hiring session. Now we never force-redirect off /hiring —
+  // workers who accidentally land here see the empty state and can
+  // navigate back. /dashboard still redirects employer-only users
+  // TO /dashboard/hiring, so the asymmetry is OK.
   useEffect(() => {
     if (user === null || user === false) return;
-    if (me === null) return;
     let cancelled = false;
     fetchWithAuth<CandidateProbe>("/api/account/me")
       .then((d) => {
         if (cancelled) return;
         setHasWorkerProfile(!!d.profile);
-        if (d.profile && !me.employer) {
-          window.location.replace("/dashboard");
-        }
       })
       .catch(() => {
         if (!cancelled) setHasWorkerProfile(false);
@@ -114,7 +116,7 @@ export default function EmployerDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, me]);
+  }, [user]);
 
   async function refreshJobs() {
     try {
