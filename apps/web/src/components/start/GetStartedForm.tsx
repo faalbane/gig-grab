@@ -395,7 +395,12 @@ function GetStartedFormInner() {
               />
               <span>
                 I agree to receive a recorded call from GigGrab&apos;s AI
-                recruiter and accept the{" "}
+                recruiter AND to receive recurring SMS messages from
+                GigGrab at the number above with my job matches,
+                application status updates, interview invitations, and
+                account notifications. Message frequency varies (typically
+                1&ndash;5/week). Msg &amp; data rates may apply. Reply
+                STOP to unsubscribe, HELP for help. I accept the{" "}
                 <a
                   href="/legal/terms"
                   target="_blank"
